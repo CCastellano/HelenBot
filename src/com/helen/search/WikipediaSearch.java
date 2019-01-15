@@ -108,7 +108,11 @@ public class WikipediaSearch {
 							if(newline != -1){
 								top = top.substring(0, newline);
 							}
-							if(top.endsWith(":") && top.contains("refer")){
+							int period = top.indexOf('.');
+							if(period != -1){
+								top = top.substring(0, period);
+							}
+							if(top.contains(":") && top.contains("refer")){
 								JsonElement links = resultObj.get("links");
 								if(links != null && links.isJsonArray()){
 									for(JsonElement sublink : links.getAsJsonArray()){

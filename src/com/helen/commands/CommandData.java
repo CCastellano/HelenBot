@@ -17,7 +17,7 @@ public class CommandData {
 		this.sender = sender;
 		this.login = login;
 		this.hostname = hostname;
-		this.message = message;
+		this.message = message.trim();
 	}
 	
 	

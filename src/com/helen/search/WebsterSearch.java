@@ -30,6 +30,9 @@ public class WebsterSearch {
 		String result = Command.ERROR;
 		try {
 			Document doc = findDefinition(query);
+			if (doc == null) {
+				return Command.NOT_FOUND;
+			}
 			NodeList sugList = doc.getElementsByTagName("suggestion");
 			if (sugList.getLength() > 0) {
 				System.out.println(sugList.item(0).getFirstChild().getNodeValue());
@@ -69,7 +72,11 @@ public class WebsterSearch {
 			InputSource is;
 
 			builder = factory.newDocumentBuilder();
-			is = new InputSource(new StringReader(result.toString()));
+			String resString = result.toString();
+			if ("Results not found".equals(resString)) {
+				return null;
+			}
+			is = new InputSource(new StringReader(resString));
 			doc =  builder.parse(is);
 		} catch (Exception e) {
 			logger.error("There was an exception attempting to retreive dictionary results", e);

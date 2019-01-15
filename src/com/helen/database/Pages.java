@@ -178,7 +178,7 @@ public class Pages {
 			returnString.append("Written ");
 			returnString.append(findTime(df.parse((String) result.get(targetName)
 					.get("created_at")).getTime()));
-			returnString.append("By: ");
+			returnString.append("by: ");
 			returnString.append(result.get(targetName).get("created_by"));
 			returnString.append(")");
 			returnString.append(" - ");
@@ -518,7 +518,7 @@ public class Pages {
 			return (time / MINUTES) + " minute" + (diff > 1 ? "s" : "") + " ago ";
 			
 		}else{
-			return "A few seconds ago ";
+			return "a few seconds ago ";
 		}
 	
 	}
