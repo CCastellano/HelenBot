@@ -172,4 +172,7 @@ public class HelenBot extends PircBot {
 		}
 	}
 
+	public final void sendReply(CommandData data, String reply) {
+		this.sendMessage(data.getResponseTarget(), data.getSender() + ": " + reply);
+	}
 }
