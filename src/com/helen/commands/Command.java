@@ -274,20 +274,15 @@ public class Command {
 		helen.sendMessage(data.getResponseTarget(), data.getSender() + ": " + Nicks.deleteAllNicks(data, false));
 	}
 
-	@IRCCommand(command = { "rollTest" }, startOfLine = true, securityLevel = 1, reg = true,
-			regex = {"([0-9]+)(d|f)([0-9]+)([+|-]?[0-9]+)?(\\s-e|-s)?\\s?(-e|-s)?\\s?(.+)?"})
-	public void regexRoll(CommandData data) {
-		Roll roll = new Roll(".roll " + data.getMessage(),
-				data.getSender(),
-				"([0-9]+)(d|f)([0-9]+)([+|-]?[0-9]+)?(\\s-e|-s)?\\s?(-e|-s)?\\s?(.+)?");
-		Rolls.insertRoll(roll);
-		helen.sendMessage(data.getResponseTarget(), data.getSender() + ": " + roll.toString());
-	}
 	@IRCCommand(command = { ".roll" }, startOfLine = true, securityLevel = 1)
 	public void roll(CommandData data) {
-		Roll roll = new Roll(data.getMessage(), data.getSender());
-		Rolls.insertRoll(roll);
-		helen.sendMessage(data.getResponseTarget(), data.getSender() + ": " + roll.toString());
+		try {
+			String result = Rolls.roll(data.getMessage(), data.getSender());
+			helen.sendMessage(data.getResponseTarget(), data.getSender() + ": " + result);
+		}
+		catch (IncorrectUsageException e) {
+			helen.sendMessage(data.getResponseTarget(), data.getSender() + ": " + e.getMessage());
+		}
 	}
 
 	@IRCCommand(command = { ".myRolls", ".myrolls" }, startOfLine = true, securityLevel = 1)
