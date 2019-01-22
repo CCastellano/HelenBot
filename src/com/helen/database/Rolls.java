@@ -70,7 +70,7 @@ public class Rolls {
 						rolls.add(new Roll(diceType, sides, usr, values, signum >= 0));
 						break;
 					default:
-						throw new IncorrectUsageException(word + " is not a valid die");
+						throw new NumberFormatException();
 				}
 			} catch (NumberFormatException e) {
 				break;
@@ -79,13 +79,14 @@ public class Rolls {
 		boolean expand = false;
 		StringBuilder str = new StringBuilder();
 		boolean hasMessage = i < words.length;
-		for (; i < words.length; i++) {
+		for (boolean space = false; i < words.length; i++) {
 			String word = words[i];
 			if ("-e".equals(word))
 				expand = true;
 			else {
+				if (space) str.append(" ");
+				space = true;
 				str.append(words[i]);
-				str.append(" ");
 			}
 		}
 		if (hasMessage)
