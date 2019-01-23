@@ -3,6 +3,10 @@ package com.helen.database;
 import com.helen.commands.Command;
 import com.helen.commands.CommandData;
 import com.helen.search.WikipediaSearch;
+import org.apache.commons.cli.CommandLine;
+import org.apache.commons.cli.CommandLineParser;
+import org.apache.commons.cli.DefaultParser;
+import org.apache.commons.cli.Options;
 import org.apache.log4j.Logger;
 import org.apache.xmlrpc.XmlRpcException;
 import org.apache.xmlrpc.client.XmlRpcClient;
@@ -17,6 +21,9 @@ import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+
+import static com.helen.database.Connector.getConnection;
 
 public class Pages {
 
@@ -25,10 +32,18 @@ public class Pages {
 	private static final long HOURS = 1000 * 60 * 60L;
 	private static final long MINUTES = 1000 * 60L;
 	private static final Logger logger = Logger.getLogger(Pages.class);
-	private static XmlRpcClient client;
+	private static final HashMap<String, ArrayList<Selectable>> storedEvents = new HashMap<>();
+	private static final CommandLineParser parser = new DefaultParser();
 	private static long lastLc = System.currentTimeMillis() - 20000;
-	private static HashMap<String, ArrayList<Selectable>> storedEvents = new HashMap<>();
 
+	private static final Options searchOpts = new Options() {{
+		this.addOption("e", "exclude", true, "exclude page titles");
+		this.addOption("t", "tag", true, "limit to a tag");
+		this.addOption("a", "author", true, "limit to an author");
+		this.addOption("u", "summary", false, "summarize results");
+	}};
+
+	private static XmlRpcClient client;
 	static {
 		XmlRpcClientConfigImpl config = new XmlRpcClientConfigImpl();
 		try {
@@ -44,7 +59,7 @@ public class Pages {
 			client.setTypeFactory(new XmlRpcTypeNil(client));
 			client.setConfig(config);
 		} catch (Exception e) {
-			logger.error("There was an exception", e);
+			logger.error("Exception initializing XML-RPC", e);
 		}
 	}
 
@@ -139,8 +154,7 @@ public class Pages {
 			HashMap<String, HashMap<String, Object>> result =
 					(HashMap<String, HashMap<String, Object>>) pushToAPI("pages.get_meta", params);
 
-			StringBuilder returnString = new StringBuilder();
-			returnString.append(Colors.BOLD);
+			StringBuilder returnString = new StringBuilder(Colors.BOLD);
 
 			String title = getTitle(targetName);
 			if (title == null || title.isEmpty() || title.equals("[ACCESS DENIED]")) {
@@ -163,7 +177,7 @@ public class Pages {
 			returnString.append("Written ");
 			returnString.append(findTime(df.parse((String) result.get(targetName)
 					.get("created_at")).getTime()));
-			returnString.append("by: ");
+			returnString.append("by ");
 			returnString.append(result.get(targetName).get("created_by"));
 			returnString.append(")");
 			returnString.append(" - ");
@@ -198,8 +212,7 @@ public class Pages {
 
 			if (authors.size() > 1) {
 				storedEvents.put(data.getSender(), authors);
-				StringBuilder str = new StringBuilder();
-				str.append("Did you mean: ");
+				StringBuilder str = new StringBuilder("Did you mean: ");
 				String prepend = "";
 				for (Selectable author : authors) {
 					str.append(prepend);
@@ -231,8 +244,7 @@ public class Pages {
 				choices.add(new WikipediaAmbiguous(data, title));
 			}
 			storedEvents.put(data.getSender(), choices);
-			StringBuilder str = new StringBuilder();
-			str.append("Did you mean: ");
+			StringBuilder str = new StringBuilder("Did you mean: ");
 			String prepend = "";
 			for (Selectable choice : choices) {
 				str.append(prepend);
@@ -268,7 +280,6 @@ public class Pages {
 					rs.getInt("rating"),
 					rs.getString("created_by"),
 					rs.getTimestamp("created_on"),
-					rs.getBoolean("scppage"),
 					rs.getString("scptitle")
 			));
 		}
@@ -303,7 +314,6 @@ public class Pages {
 				authorPage = new Page(
 						rs.getString("pagename"),
 						rs.getString("title"),
-						rs.getBoolean("scppage"),
 						rs.getString("scptitle")
 				);
 			rs.close();
@@ -343,8 +353,7 @@ public class Pages {
 				}
 			}
 
-			StringBuilder str = new StringBuilder();
-			str.append(Colors.BOLD);
+			StringBuilder str = new StringBuilder(Colors.BOLD);
 			str.append(user);
 			str.append(Colors.NORMAL);
 
@@ -381,10 +390,6 @@ public class Pages {
 			str.append(Colors.BOLD);
 
 			str.append(latest.title);
-			if (latest.scpPage) {
-				str.append(": ");
-				str.append(latest.scpTitle);
-			}
 
 			str.append(Colors.NORMAL);
 			str.append(" at ");
@@ -401,65 +406,110 @@ public class Pages {
 		return Command.ERROR;
 	}
 
+	private static final String[] nothing = new String[0];
+	private static String[] safe(String[] x) {
+		return x == null ? nothing : x;
+	}
+
 	public static String getPotentialTargets(String[] terms, String username) {
-		boolean exact = terms[1].equalsIgnoreCase("-e");
-		int indexOffset = exact ? 2 : 1;
 		ArrayList<Selectable> potentialPages = new ArrayList<>();
-		String[] lowerterms = new String[terms.length - indexOffset];
-		for (int i = indexOffset; i < terms.length; i++) {
-			lowerterms[i - indexOffset] = terms[i].toLowerCase();
-			logger.info(lowerterms[i - indexOffset]);
-		}
+		ArrayList<String> params = new ArrayList<>();
+		StringBuilder query =
+				new StringBuilder("SELECT * FROM pages WHERE TRUE");
+		boolean summarize = false;
 		try {
-			CloseableStatement stmt = null;
-			Connection conn = null;
-			ResultSet rs;
-			PreparedStatement state;
-			if (exact) {
-				stmt = Connector.getArrayStatement(Queries.getQuery("findskips"), lowerterms);
-				logger.info(stmt.toString());
-				rs = stmt.getResultSet();
-			} else {
-				StringBuilder query =
-						new StringBuilder("select pagename,title,scptitle,scppage from pages where");
-				for (int j = indexOffset; j < terms.length; j++) {
-					if (j != indexOffset) {
-						query.append(" and");
-					}
-					query.append(" lower(coalesce(scptitle, title)) like ?");
-				}
-				conn = Connector.getConnection();
-				state = conn.prepareStatement(query.toString());
-				for (int j = indexOffset; j < terms.length; j++) {
-					state.setString(j - (indexOffset - 1), "%" + terms[j].toLowerCase() + "%");
-				}
-				logger.info(state.toString());
-				rs = state.executeQuery();
+			CommandLine cmd = parser.parse(searchOpts, Arrays.copyOfRange(terms, 1, terms.length));
+			summarize = cmd.hasOption('u');
+			for (String word : cmd.getArgs()) {
+				query.append(" AND (title ILIKE ? OR scptitle ILIKE ?)");
+				String escape = "%" + word + "%";
+				params.add(escape);
+				params.add(escape);
 			}
-			while (rs != null && rs.next()) {
+			for (String tag : safe(cmd.getOptionValues('t'))) {
+				query.append(" AND EXISTS (");
+				query.append("SELECT FROM pagetags JOIN tags ON pagetags.tagid = tags.tagid");
+				query.append(" WHERE pages.pageid = pagetags.pageid AND tags.tag = ?)");
+				params.add(tag);
+			}
+			for (String exclude : safe(cmd.getOptionValues('e'))) {
+				query.append(" AND title NOT ILIKE ? AND scptitle NOT ILIKE ?");
+				String escape = "%" + exclude + "%";
+				params.add(escape);
+				params.add(escape);
+			}
+			for (String author : safe(cmd.getOptionValues('a'))) {
+				query.append(" AND (created_by = ? OR EXISTS (");
+				query.append("SELECT FROM attributions WHERE attributions.pageid = pages.pageid");
+				query.append(" AND attributions.created_by = ?))");
+				String authorLower = author.toLowerCase();
+				params.add(authorLower);
+				params.add(authorLower);
+			}
+			Connection conn = getConnection();
+			PreparedStatement stmt = conn.prepareStatement(query.toString());
+			for (int i = 0; i < params.size(); i++)
+				stmt.setString(i + 1, params.get(i));
+			ResultSet rs = stmt.executeQuery();
+			while (rs != null && rs.next())
 				potentialPages.add(new Page(
 						rs.getString("pagename"),
 						rs.getString("title"),
-						rs.getBoolean("scppage"),
+						rs.getInt("rating"),
+						rs.getString("created_by"),
+						rs.getTimestamp("created_on"),
 						rs.getString("scptitle")
 				));
-			}
-			if (stmt != null) stmt.close();
-			if (conn != null) conn.close();
-			if (rs != null)   rs.close();
-		} catch (SQLException e) {
-			logger.error("There was an issue grabbing potential SCP pages", e);
+			stmt.close();
+			conn.close();
+			if (rs != null)
+				rs.close();
+		} catch (Exception e) {
+			logger.error("There was an issue during search", e);
 		}
+		if (summarize && !potentialPages.isEmpty()) {
+			int rating = 0;
+			HashSet<String> authors = new HashSet<>();
+			Timestamp oldest = null;
+			Timestamp newest = null;
+			Page highest = null;
 
-		if (potentialPages.size() > 1) {
+			for (Selectable x : potentialPages) {
+				Page page = (Page) x;
+				System.out.println(page.title + ": " + page.rating);
+				rating += page.rating;
+				authors.add(page.createdBy);
+				if (oldest == null || page.createdAt.before(oldest))
+					oldest = page.createdAt;
+				if (newest == null || page.createdAt.after(newest))
+					newest = page.createdAt;
+				if (highest == null || highest.rating < page.rating)
+					highest = page;
+			}
+
+			return "Found " +
+					Colors.BOLD + potentialPages.size() + Colors.NORMAL +
+					" pages by " +
+					Colors.BOLD + authors.size() + Colors.NORMAL +
+					" authors. They have a total rating of " +
+					Colors.BOLD + fmtRating(rating) + Colors.NORMAL +
+					", with an average of " +
+					Colors.BOLD + fmtRating(rating / potentialPages.size()) + Colors.NORMAL +
+					". The pages were created between " +
+					findTime(oldest.getTime()) + "and " + findTime(newest.getTime()) +
+					". The highest rated page is " +
+					Colors.BOLD + highest.title + Colors.NORMAL +
+					" at " +
+					Colors.BOLD + fmtRating(highest.rating) + Colors.NORMAL +
+					".";
+		} else if (potentialPages.size() > 1) {
 			storedEvents.put(username, potentialPages);
-			StringBuilder str = new StringBuilder();
-			str.append("Did you mean: ");
+			StringBuilder str = new StringBuilder("Did you mean: ");
 
 			for (Selectable p : potentialPages) {
 				Page page = (Page) p;
 				str.append(Colors.BOLD);
-				str.append(page.scpPage ? page.title + ": " + page.scpTitle : page.title);
+				str.append(page.title);
 				str.append(Colors.NORMAL);
 				str.append(", ");
 			}
@@ -495,13 +545,7 @@ public class Pages {
 	}
 
 	private static String measureTime(long amount, String label) {
-		StringBuilder str = new StringBuilder(Long.toString(amount));
-		str.append(" ");
-		str.append(label);
-		if (amount != 1)
-			str.append("s");
-		str.append(" ago");
-		return str.toString();
+		return amount + " " + label + (amount == 1 ? " " : "s ") + "ago ";
 	}
 
 	public static String findTime(long time) {

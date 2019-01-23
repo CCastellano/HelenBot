@@ -36,12 +36,7 @@ public class Config implements DatabaseObject {
 	}
 	
 	public String toString(){
-		StringBuilder str = new StringBuilder();
-		
-		str.append(key);
-		str.append(":");
-		str.append(value);
-		return str.toString();
+		return key + ":" + value;
 	}
 	
 	public boolean displayToUser(){

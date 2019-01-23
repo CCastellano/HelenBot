@@ -78,13 +78,10 @@ public class Pronouns {
 				StringBuilder str = new StringBuilder();
 				CloseableStatement stmt = Connector.getStatement(Queries
 						.getQuery("establishPronoun"), data.getSender()
-						.toLowerCase(), data.getSplitMessage()[1]
-						.equalsIgnoreCase("accepted") ? true : false);
+						.toLowerCase(), data.getSplitMessage()[1].equalsIgnoreCase("accepted"));
 				ResultSet rs = stmt.execute();
 
-				String nounData = data.getMessage().substring(
-						data.getMessage().split(" ")[0].length(),
-						data.getMessage().length());
+				String nounData = data.getMessage().substring(data.getMessage().split(" ")[0].length());
 
 				String[] nouns = nounData.replace(",", " ").replace("/", " ")
 						.replace("\\", " ").trim().replaceAll(" +", " ")

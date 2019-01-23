@@ -686,8 +686,7 @@ public class Command {
 	}
 
 	private String buildResponse(ArrayList<? extends DatabaseObject> dbo) {
-		StringBuilder str = new StringBuilder();
-		str.append("{");
+		StringBuilder str = new StringBuilder("{");
 		for (int i = 0; i < dbo.size(); i++) {
 			if(dbo.get(i).displayToUser()){
 				if (i != 0) {

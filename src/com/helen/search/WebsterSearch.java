@@ -127,8 +127,7 @@ public class WebsterSearch {
 				}
 				test.add(def);
 			}
-			StringBuilder str = new StringBuilder();
-			str.append(Colors.BOLD);
+			StringBuilder str = new StringBuilder(Colors.BOLD);
 			str.append(keyword);
 			str.append(" - ");
 			str.append(Colors.NORMAL);
