@@ -1,16 +1,16 @@
-package com.helen.database;
+package com.helen.database.selectable;
+
+import com.helen.database.Pages;
 
 import java.sql.Timestamp;
-import java.util.ArrayList;
-import java.util.Arrays;
 
 public class Page implements Selectable {
 
-	final String pageLink;
-	final String title;
-	final int rating;
-	final String createdBy;
-	final java.sql.Timestamp createdAt;
+	public final String pageLink;
+	public final String title;
+	public final int rating;
+	public final String createdBy;
+	public final java.sql.Timestamp createdAt;
 
 	public Page(String pageLink, String title, String scpTitle){
 		this.pageLink = pageLink;
@@ -34,8 +34,13 @@ public class Page implements Selectable {
 	}
 
 	@Override
-	public Object selectResource() {
-		return pageLink;
+	public String getDisplay() {
+		return this.title;
+	}
+
+	@Override
+	public String run() {
+		return Pages.getPageInfo(this.pageLink);
 	}
 
 	@Override

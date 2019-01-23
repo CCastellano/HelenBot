@@ -6,7 +6,6 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.helen.commands.Command;
 import com.helen.commands.CommandData;
-import com.helen.database.Configs;
 import com.helen.database.Pages;
 
 import java.io.BufferedReader;
@@ -20,6 +19,8 @@ import java.util.ArrayList;
 public class WikipediaSearch {
 
 	private static final int CHARACTER_LIMIT = 300;
+	private static final String SEARCH = "https://en.wikipedia.org/w/api.php?format=json&formatversion=2&action=query&list=search&srlimit=1&srprop=&srsearch=";
+	private static final String ENTRY  = "https://en.wikipedia.org/w/api.php?format=json&action=query&prop=extracts|links&pllimit=500&exintro&explaintext&redirects=1&pageids=";
 
 	private static String wikiEncode(String unencoded) throws IOException {
 		return URLEncoder.encode(unencoded, "UTF-8").replaceAll("\\+", "%20");
@@ -38,7 +39,7 @@ public class WikipediaSearch {
 
 	private static int getPage(String searchTerm) throws IOException {
 		int page = -1;
-		URL url = new URL(Configs.getSingleProperty("wikipediaSearchUrl").getValue() + searchTerm);
+		URL url = new URL(SEARCH + searchTerm);
 		HttpURLConnection conn = (HttpURLConnection) url.openConnection();
 		conn.setRequestMethod("GET");
 		conn.setRequestProperty("Accept", "application/json");
@@ -71,6 +72,7 @@ public class WikipediaSearch {
 
 	public static String search(CommandData data, String searchTerm) throws IOException {
 		searchTerm = searchTerm.substring(searchTerm.indexOf(' ') + 1);
+		String ambig = searchTerm.toLowerCase() + " (";
 		int page = getPage(wikiEncode(searchTerm));
 		if(page == -1){
 			return Command.NOT_FOUND;
@@ -79,7 +81,8 @@ public class WikipediaSearch {
 		String link = null;
 		String content = null;
 		ArrayList<String> disambiguate = new ArrayList<>();
-		URL url = new URL(Configs.getSingleProperty("wikipediaEntryUrl").getValue() + pageString);
+		ArrayList<String> verbatim = new ArrayList<>();
+		URL url = new URL(ENTRY + pageString);
 		HttpURLConnection conn = (HttpURLConnection) url.openConnection();
 		conn.setRequestMethod("GET");
 		conn.setRequestProperty("Accept", "application/json");
@@ -117,7 +120,9 @@ public class WikipediaSearch {
 											if(subtitle != null && subtitle.isJsonPrimitive()){
 												String subtitleString = subtitle.getAsString();
 												if(subtitleString != null && !subtitleString.contains("disambiguation")){
-													disambiguate.add(subtitle.getAsString());
+													disambiguate.add(subtitleString);
+													if (subtitleString.toLowerCase().startsWith(ambig))
+															verbatim.add(subtitleString);
 												}
 											}
 										}
@@ -132,22 +137,13 @@ public class WikipediaSearch {
 
 		conn.disconnect();
 
-		if(content == null){
+		if (content == null)
 			return Command.NOT_FOUND;
-		} else if(disambiguate.isEmpty()){
+		else if (disambiguate.isEmpty())
 			return link + " " + cleanContent(content);
-		} else{
-			ArrayList<String> verbatim = new ArrayList<>();
-			for(String title : disambiguate){
-				if(title.contains(searchTerm + " (")){
-					verbatim.add(title);
-				}
-			}
-			if(verbatim.isEmpty()){
-				return Pages.disambiguateWikipedia(data, disambiguate);
-			} else{
-				return Pages.disambiguateWikipedia(data, verbatim);
-			}
-		}
+		else if (verbatim.isEmpty())
+			return Pages.disambiguateWikipedia(data, disambiguate);
+		else
+			return Pages.disambiguateWikipedia(data, verbatim);
 	}
 }

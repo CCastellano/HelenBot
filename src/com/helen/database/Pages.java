@@ -2,7 +2,7 @@ package com.helen.database;
 
 import com.helen.commands.Command;
 import com.helen.commands.CommandData;
-import com.helen.search.WikipediaSearch;
+import com.helen.database.selectable.*;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.DefaultParser;
@@ -21,7 +21,6 @@ import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 import static com.helen.database.Connector.getConnection;
 
@@ -32,7 +31,6 @@ public class Pages {
 	private static final long HOURS = 1000 * 60 * 60L;
 	private static final long MINUTES = 1000 * 60L;
 	private static final Logger logger = Logger.getLogger(Pages.class);
-	private static final HashMap<String, ArrayList<Selectable>> storedEvents = new HashMap<>();
 	private static final CommandLineParser parser = new DefaultParser();
 	private static long lastLc = System.currentTimeMillis() - 20000;
 
@@ -206,66 +204,28 @@ public class Pages {
 			rs.close();
 			stmt.close();
 
-			if (authors.isEmpty()) {
+			if (authors.isEmpty())
 				return "I couldn't find any author by that name.";
-			}
-
-			if (authors.size() > 1) {
-				storedEvents.put(data.getSender(), authors);
-				StringBuilder str = new StringBuilder("Did you mean: ");
-				String prepend = "";
-				for (Selectable author : authors) {
-					str.append(prepend);
-					prepend = ",";
-					str.append(Colors.BOLD);
-					str.append(((Author) author).getAuthor());
-					str.append(Colors.NORMAL);
-				}
-				str.append("?");
-				return str.toString();
-			} else {
-				return getAuthorDetailsPages(((Author) authors.get(0)).getAuthor());
-			}
-
+			else if (authors.size() > 1)
+				return StoredCommands.store(data.getSender(), authors);
+			else
+				return getAuthorDetailsPages(((Author) authors.get(0)).authorName);
 		} catch (Exception e) {
 			logger.error("Error constructing author detail", e);
 		}
 
-		return "I apologize, there's been an error.  Please inform DrMagnus there's an error with author details.";
+		return Command.ERROR;
 	}
 
 	public static String disambiguateWikipedia(CommandData data, List<String> titles) {
-		if (titles.isEmpty()) {
+		if (titles.isEmpty())
 			return "I couldn't find any choices.";
-		}
-		try {
+		else {
 			ArrayList<Selectable> choices = new ArrayList<>();
-			for (String title : titles) {
+			for (String title : titles)
 				choices.add(new WikipediaAmbiguous(data, title));
-			}
-			storedEvents.put(data.getSender(), choices);
-			StringBuilder str = new StringBuilder("Did you mean: ");
-			String prepend = "";
-			for (Selectable choice : choices) {
-				str.append(prepend);
-				prepend = ",";
-				str.append(Colors.BOLD);
-				str.append(((WikipediaAmbiguous) choice).getTitle());
-				str.append(Colors.NORMAL);
-			}
-			str.append("?");
-			String result = str.toString();
-			result = result.substring(0, Math.min(400, result.length()));
-			int lastComma = result.lastIndexOf(',');
-			if (lastComma != -1) {
-				result = result.substring(0, lastComma);
-			}
-			return result;
-		} catch (Exception e) {
-			logger.error("Error constructing choice", e);
+			return StoredCommands.store(data.getSender(), choices);
 		}
-
-		return Command.ERROR;
 	}
 
 	private static ArrayList<Page> getTagged(String user, String tag) throws SQLException {
@@ -476,7 +436,6 @@ public class Pages {
 
 			for (Selectable x : potentialPages) {
 				Page page = (Page) x;
-				System.out.println(page.title + ": " + page.rating);
 				rating += page.rating;
 				authors.add(page.createdBy);
 				if (oldest == null || page.createdAt.before(oldest))
@@ -502,46 +461,16 @@ public class Pages {
 					" at " +
 					Colors.BOLD + fmtRating(highest.rating) + Colors.NORMAL +
 					".";
-		} else if (potentialPages.size() > 1) {
-			storedEvents.put(username, potentialPages);
-			StringBuilder str = new StringBuilder("Did you mean: ");
-
-			for (Selectable p : potentialPages) {
-				Page page = (Page) p;
-				str.append(Colors.BOLD);
-				str.append(page.title);
-				str.append(Colors.NORMAL);
-				str.append(", ");
-			}
-			str.append("?");
-			return str.toString();
-		} else {
-			if (potentialPages.size() == 1) {
-				return getPageInfo(((Page) potentialPages.get(0)).pageLink);
-			} else {
-				return Command.NOT_FOUND;
-			}
-		}
+		} else if (potentialPages.size() > 1)
+			return StoredCommands.store(username, potentialPages);
+		else if (potentialPages.size() == 1)
+			return getPageInfo(((Page) potentialPages.get(0)).pageLink);
+		else
+			return Command.NOT_FOUND;
 	}
 
 	public static String getStoredInfo(String index, String username) {
-		try {
-			Selectable s = storedEvents.get(username).get(Integer.parseInt(index) - 1);
-			if (s instanceof Page) {
-				return getPageInfo((String) s.selectResource());
-			} else if (s instanceof Author) {
-				return getAuthorDetailsPages((String) s.selectResource());
-			} else if (s instanceof WikipediaAmbiguous) {
-				WikipediaAmbiguous choice = (WikipediaAmbiguous) s;
-				CommandData data = choice.getData();
-				return WikipediaSearch.search(data, choice.getTitle());
-			}
-
-		} catch (Exception e) {
-			logger.error("There was an exception getting stored info", e);
-		}
-
-		return "Either the command was malformed, or I have nothing for you to get.";
+		return StoredCommands.run(index, username);
 	}
 
 	private static String measureTime(long amount, String label) {
