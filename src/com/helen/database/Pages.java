@@ -20,18 +20,17 @@ import java.util.regex.Pattern;
 
 public class Pages {
 
-	private static final Long YEARS = 1000 * 60 * 60 * 24 * 365L;
-	private static final Long DAYS = 1000 * 60 * 60 * 24L;
-	private static final Long HOURS = 1000 * 60 * 60L;
-	private static final Long MINUTES = 1000 * 60L;
+	private static final long YEARS = 1000 * 60 * 60 * 24 * 365L;
+	private static final long DAYS = 1000 * 60 * 60 * 24L;
+	private static final long HOURS = 1000 * 60 * 60L;
+	private static final long MINUTES = 1000 * 60L;
 	private static final Logger logger = Logger.getLogger(Pages.class);
-	private static XmlRpcClientConfigImpl config;
 	private static XmlRpcClient client;
-	private static Long lastLc = System.currentTimeMillis() - 20000;
-	private static HashMap<String, ArrayList<Selectable>> storedEvents = new HashMap<String, ArrayList<Selectable>>();
+	private static long lastLc = System.currentTimeMillis() - 20000;
+	private static HashMap<String, ArrayList<Selectable>> storedEvents = new HashMap<>();
 
 	static {
-		config = new XmlRpcClientConfigImpl();
+		XmlRpcClientConfigImpl config = new XmlRpcClientConfigImpl();
 		try {
 			config.setServerURL(new URL(Configs.getSingleProperty("wikidotServer").getValue()));
 			config.setBasicUserName(Configs.getSingleProperty("appName").getValue());
@@ -44,7 +43,6 @@ public class Pages {
 			client.setTransportFactory(new XmlRpcSun15HttpTransportFactory(client));
 			client.setTypeFactory(new XmlRpcTypeNil(client));
 			client.setConfig(config);
-
 		} catch (Exception e) {
 			logger.error("There was an exception", e);
 		}
@@ -127,6 +125,7 @@ public class Pages {
 		params.put("site", Configs.getSingleProperty("site").getValue());
 		String[] target = new String[]{targetName.toLowerCase()};
 		params.put("pages", target);
+		/*
 		ArrayList<String> keyswewant = new ArrayList<>();
 		keyswewant.add("title_shown");
 		keyswewant.add("rating");
@@ -134,6 +133,7 @@ public class Pages {
 		keyswewant.add("title");
 		keyswewant.add("created_by");
 		keyswewant.add("tags");
+		*/
 		try {
 			@SuppressWarnings("unchecked")
 			HashMap<String, HashMap<String, Object>> result =
@@ -262,17 +262,15 @@ public class Pages {
 				.getStatement(Queries.getQuery("findTagged"), tag, user, user)
 				.getResultSet();
 		while (rs != null && rs.next()) {
-			pages.add(
-					new Page(
-							rs.getString("pagename"),
-							rs.getString("title"),
-							rs.getInt("rating"),
-							rs.getString("created_by"),
-							rs.getTimestamp("created_on"),
-							rs.getBoolean("scppage"),
-							rs.getString("scptitle")
-					)
-			);
+			pages.add(new Page(
+					rs.getString("pagename"),
+					rs.getString("title"),
+					rs.getInt("rating"),
+					rs.getString("created_by"),
+					rs.getTimestamp("created_on"),
+					rs.getBoolean("scppage"),
+					rs.getString("scptitle")
+			));
 		}
 		return pages;
 	}
@@ -310,12 +308,13 @@ public class Pages {
 				);
 			rs.close();
 			stmt.close();
+			String authorPageName = authorPage == null ? "null" : authorPage.pageLink;
 
-			ArrayList<Page> scps = getTagged(lowerUser, "scp");
+			ArrayList<Page> scps  = getTagged(lowerUser, "scp");
 			ArrayList<Page> tales = getTagged(lowerUser, "tale");
-			ArrayList<Page> gois = getTagged(lowerUser, "goi-format");
-			ArrayList<Page> hubs = getTagged(lowerUser, "hub");
-			ArrayList<Page> art = getTagged(lowerUser, "artwork");
+			ArrayList<Page> gois  = getTagged(lowerUser, "goi-format");
+			ArrayList<Page> hubs  = getTagged(lowerUser, "hub");
+			ArrayList<Page> art   = getTagged(lowerUser, "artwork");
 
 			HashSet<Page> all = new HashSet<>(scps);
 			all.addAll(tales);
@@ -323,18 +322,16 @@ public class Pages {
 			all.addAll(hubs);
 			all.addAll(art);
 
-			int scpsSize = scps.size();
+			int scpsSize  = scps.size();
 			int talesSize = tales.size();
-			int goisSize = gois.size();
-			int hubsSize = hubs.size();
-			int artSize = art.size();
-			int allSize = all.size();
+			int goisSize  = gois.size();
+			int hubsSize  = hubs.size();
+			int artSize   = art.size();
+			int allSize   = all.size();
 
 			Page latest = null;
 			Timestamp ts = new java.sql.Timestamp(0);
 			int rating = 0;
-
-			String authorPageName = authorPage == null ? "null" : authorPage.pageLink;
 
 			for (Page pg : all) {
 				if (!pg.pageLink.equals(authorPageName)) {
@@ -414,13 +411,12 @@ public class Pages {
 			logger.info(lowerterms[i - indexOffset]);
 		}
 		try {
-			ResultSet rs = null;
 			CloseableStatement stmt = null;
-			PreparedStatement state = null;
 			Connection conn = null;
+			ResultSet rs;
+			PreparedStatement state;
 			if (exact) {
-				stmt = Connector.getArrayStatement(
-						Queries.getQuery("findskips"), lowerterms);
+				stmt = Connector.getArrayStatement(Queries.getQuery("findskips"), lowerterms);
 				logger.info(stmt.toString());
 				rs = stmt.getResultSet();
 			} else {
@@ -441,9 +437,12 @@ public class Pages {
 				rs = state.executeQuery();
 			}
 			while (rs != null && rs.next()) {
-				potentialPages.add(new Page(rs.getString("pagename"), rs
-						.getString("title"), rs.getBoolean("scppage"), rs
-						.getString("scptitle")));
+				potentialPages.add(new Page(
+						rs.getString("pagename"),
+						rs.getString("title"),
+						rs.getBoolean("scppage"),
+						rs.getString("scptitle")
+				));
 			}
 			if (stmt != null) stmt.close();
 			if (conn != null) conn.close();
@@ -495,30 +494,28 @@ public class Pages {
 		return "Either the command was malformed, or I have nothing for you to get.";
 	}
 
+	private static String measureTime(long amount, String label) {
+		StringBuilder str = new StringBuilder(Long.toString(amount));
+		str.append(" ");
+		str.append(label);
+		if (amount != 1)
+			str.append("s");
+		str.append(" ago");
+		return str.toString();
+	}
 
-	public static String findTime(Long time) {
+	public static String findTime(long time) {
 		//compensate for EST (helen runs in EST)
 		time = (System.currentTimeMillis() + HOURS * 4) - time;
-		Long diff = 0L;
-		if (time >= YEARS) {
-			diff = time / YEARS;
-			return (time / YEARS) + " year" + (diff > 1 ? "s" : "") + " ago ";
-
-		} else if (time >= DAYS) {
-			diff = time / DAYS;
-			return (time / DAYS) + " day" + (diff > 1 ? "s" : "") + " ago ";
-
-		} else if (time >= HOURS) {
-			diff = (time / HOURS);
-			return (time / HOURS) + " hour" + (diff > 1 ? "s" : "") + " ago ";
-
-		} else if (time >= MINUTES) {
-			diff = time / MINUTES;
-			return (time / MINUTES) + " minute" + (diff > 1 ? "s" : "") + " ago ";
-
-		} else {
-			return "a few seconds ago ";
-		}
-
+		if (time >= YEARS)
+			return measureTime(time / YEARS, "year");
+		else if (time >= DAYS)
+			return measureTime(time / DAYS, "day");
+		else if (time >= HOURS)
+			return measureTime(time / HOURS, "hour");
+		else if (time >= MINUTES)
+			return measureTime(time / MINUTES, "minute");
+		else
+			return "a few seconds ago";
 	}
 }
