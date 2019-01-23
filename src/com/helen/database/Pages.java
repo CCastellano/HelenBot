@@ -178,7 +178,7 @@ public class Pages {
 			returnString.append("Written ");
 			returnString.append(findTime(df.parse((String) result.get(targetName)
 					.get("created_at")).getTime()));
-			returnString.append("by: ");
+			returnString.append("by ");
 			returnString.append(result.get(targetName).get("created_by"));
 			returnString.append(")");
 			returnString.append(" - ");
@@ -496,46 +496,22 @@ public class Pages {
 		return "Either the command was malformed, or I have nothing for you to get.";
 	}
 
-	
-	public static String findTime(Long time){
+	private static String measureTime(long amount, String label) {
+		return amount + " " + label + (amount == 1 ? " " : "s ") + "ago ";
+	}
+
+	public static String findTime(long time) {
 		//compensate for EST (helen runs in EST)
 		time = (System.currentTimeMillis() + HOURS * 4) - time;
-		Long diff = 0l;
-		if(time >= YEARS){
-			diff = time/YEARS;
-			return (time / YEARS) + " year" + (diff > 1 ? "s" : "") + " ago ";
-			
-		}else if( time >= DAYS){
-			diff = time/DAYS;
-			return (time / DAYS) + " day" + (diff > 1 ? "s" : "") + " ago ";
-			
-		}else if(time >= HOURS){
-			diff = (time/HOURS);
-			return (time / HOURS) + " hour" + (diff > 1 ? "s" : "") + " ago ";
-			
-		}else if( time >= MINUTES){
-			diff = time/MINUTES;
-			return (time / MINUTES) + " minute" + (diff > 1 ? "s" : "") + " ago ";
-			
-		}else{
-			return "a few seconds ago ";
-		}
-	
+		if (time >= YEARS)
+			return measureTime(time / YEARS, "year");
+		else if (time >= DAYS)
+			return measureTime(time / DAYS, "day");
+		else if (time >= HOURS)
+			return measureTime(time / HOURS, "hour");
+		else if (time >= MINUTES)
+			return measureTime(time / MINUTES, "minute");
+		else
+			return "a few seconds ago";
 	}
-	
-	
-		
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
 }
