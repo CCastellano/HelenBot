@@ -1,3 +1,13 @@
+dependency-reduced-pom.xml
+.settings/
+
+# =========================
+# Operating System Files
+# =========================
+
+# WINDOWS
+#==========================
+
 # Windows image file caches
 Thumbs.db
 ehthumbs.db
@@ -16,10 +26,6 @@ $RECYCLE.BIN/
 
 # Windows shortcuts
 *.lnk
-
-# =========================
-# Operating System Files
-# =========================
 
 # OSX
 # =========================

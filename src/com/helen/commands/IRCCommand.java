@@ -5,7 +5,6 @@ import java.lang.annotation.RetentionPolicy;
 
 @Retention(RetentionPolicy.RUNTIME)
 public @interface IRCCommand {
-
 	String[] command();
 	boolean startOfLine();
 	boolean reg() default false;
@@ -13,5 +12,5 @@ public @interface IRCCommand {
 	int matcherGroup () default -1;
 	boolean coexistWithJarvis() default false;
 	int securityLevel();
-	boolean requiresToggle() default false;
+	// boolean requiresToggle() default false;
 }

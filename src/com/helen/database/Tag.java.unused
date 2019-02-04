@@ -1,15 +1,9 @@
 package com.helen.database;
 
-
 public class Tag {
+	public final String tagName;
 	
-	
-	String tagName;
-	
-	public Tag(String tagName){
+	public Tag(String tagName) {
 		this.tagName = tagName;
-		
 	}
-	
-	
 }

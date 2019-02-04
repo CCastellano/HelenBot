@@ -1,118 +1,127 @@
 package com.helen.database;
 
-import com.helen.commands.CommandData;
-import org.apache.log4j.Logger;
+import com.helen.commands.*;
 
+import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 
-public class Nicks {
+public final class Nicks {
 
-    final static Logger logger = Logger.getLogger(Nicks.class);
-
-    public static String addNick(CommandData data) {
-        try {
-            UserNick nick = new UserNick(data);
-            if(nick.getNickToGroup() != null) {
-                CloseableStatement insertStatement = Connector.getStatement(Queries.getQuery("insert_grouped_nick"),
-                        nick.getGroupId(), nick.getNickToGroup().toLowerCase());
-                if (insertStatement.executeUpdate()) {
-                    if (nick.isNewNick()) {
-                        return "Established a new nickgroup under " + data.getSender() + " and added the nick " + nick.getNickToGroup() + " as a grouped nick.";
-                    }
-                    return "Inserted " + nick.getNickToGroup() + " for user " + data.getSender() + ".";
-                } else {
-                    return "Failed to insert grouped nick during final insert, please contact DrMagnus.";
-                }
-            }else{
-                return "Your nick is already grouped with ID: " + nick.getGroupId();
-            }
-
-        } catch (Exception e) {
-            logger.error("Error inserting in to the database",e);
+  public static String addNick(CommandData data) throws SQLException {
+    //int id = getNickGroup(data.sender);
+    //if (id != -1) {
+    UserNick nick = new UserNick(data);
+    if (nick.nickToGroup == null) {
+      return "Your nick is already grouped with ID: " + nick.groupId;
+    } else {
+      try (
+          Connection conn = Connector.getConnection();
+          PreparedStatement insertStatement = Connector.prepare(conn, "insert_grouped_nick",
+              "INSERT INTO nicks (id, nick) VALUES (?, ?)",
+              nick.groupId, nick.nickToGroup.toLowerCase()
+          )
+      ) {
+        if (insertStatement.executeUpdate() == 0) {
+          return Command.error();
+        } else if (nick.isNewNick) {
+          return "Established a new nickgroup under " + data.sender +
+                 " and added the nick " + nick.nickToGroup + " as a grouped nick.";
+        } else {
+          return "Inserted " + nick.nickToGroup + " for user " + data.sender + '.';
         }
-        return "Failed to insert grouped nick, please contact DrMagnus.";
+      }
     }
+  }
 
-    public static String deleteNick(CommandData data){
-        Integer id = getNickGroup(data.getSender());
-        if(id != null && id != -1){
-            try {
-                Connector.getStatement(Queries.getQuery("deleteGroupedNick"), data.getTarget().toLowerCase()).executeUpdate();
-            }catch(Exception e){
-                logger.error("Exception trying to delete nick.",e);
-            }
-            return "Deleted " + data.getTarget() + " from your grouped nicks.";
-        }else{
-            return "I didn't find any grouped nicks for your username.";
+  public static String deleteNick(CommandData data) throws SQLException {
+    int id = getNickGroup(data.sender);
+    String target = data.getTarget();
+    if (id != -1 && target != null) {
+      try (
+          Connection conn = Connector.getConnection();
+          PreparedStatement stmt = Connector.prepare(conn, "deleteGroupedNick",
+              "DELETE FROM nicks WHERE nick = ?",
+              target.toLowerCase()
+          )
+      ) {
+        stmt.executeUpdate();
+      }
+      return "Deleted " + data.getTarget() + " from your grouped nicks.";
+    } else {
+      return "I didn't find any grouped nicks for your username.";
+    }
+  }
+
+  private static boolean deleteNick(String data) throws SQLException {
+    try (
+        Connection conn = Connector.getConnection();
+        PreparedStatement stmt = Connector.prepare(conn, "deleteGroupedNick",
+            "DELETE FROM nicks WHERE nick = ?",
+            data.toLowerCase()
+        )
+    ) {
+      return stmt.executeUpdate() > 0;
+    }
+  }
+
+  public static String deleteAllNicks(CommandData data, boolean admin) throws SQLException {
+    String target = data.getTarget();
+    int id;
+    if (!admin) {
+      id = getNickGroup(data.sender);
+    } else if (target == null) {
+      id = -1;
+    } else {
+      id = getNickGroup(target);
+    }
+    if (id != -1) {
+      for (String nick : getNicksByGroup(id)) {
+        if (!deleteNick(nick)) {
+          return "There was a problem deleting nicks.";
         }
+      }
+      return "Deleted all nicks for your group.";
+    } else {
+      return "Your nick is not grouped";
     }
+  }
 
-    private static boolean deleteNick(String data){
-            try {
-                return Connector.getStatement(Queries.getQuery("deleteGroupedNick"), data.toLowerCase()).executeUpdate();
-            }catch(Exception e){
-                logger.error("Exception trying to delete nick.",e);
-            }
-            return false;
+  public static List<String> getNicksByGroup(int id) throws SQLException {
+    try (
+        Connection conn = Connector.getConnection();
+        PreparedStatement stmt = Connector.prepare(conn, "getNick",
+            "SELECT nick FROM nicks WHERE id = ?",
+            id
+        );
+        ResultSet rs = stmt.executeQuery()
+    ) {
+      List<String> nicks = new ArrayList<>();
+      while (rs.next()) {
+        nicks.add(rs.getString("nick"));
+      }
+      return nicks;
     }
+  }
 
-    public static String deleteAllNicks(CommandData data, boolean admin){
-        Integer id = getNickGroup(admin ? data.getTarget() : data.getSender());
-        if(id != null && id != -1) {
-            List<String> nicks = getNicksByGroup(id);
-            boolean flag = true;
-            for (String nick : nicks) {
-                flag = deleteNick(nick);
-                if (flag) {
-                    continue;
-                } else {
-                    return "There was a problem deleting nicks.";
-                }
-            }
-            return "Deleted all nicks for your group.";
-        }else{
-            return "Your nick is not grouped";
-        }
+  public static int getNickGroup(String username) throws SQLException {
+    try (
+        Connection conn = Connector.getConnection();
+        PreparedStatement stmt = Connector.prepare(conn, "find_nick_group",
+            "SELECT id FROM nicks WHERE nick = ?",
+            username.toLowerCase()
+        );
+        ResultSet rs = stmt.executeQuery()
+    ) {
+      if (rs.next()) {
+        return rs.getInt("id");
+      }
     }
-
-    public static List<String> getNicksByGroup(Integer id){
-        try {
-            CloseableStatement stmt = Connector.getStatement(Queries.getQuery("getNicks"),
-                    id);
-            ResultSet rs = stmt.execute();
-            ArrayList<String> nicks = new ArrayList<>();
-            while(rs != null && rs.next()){
-                nicks.add(rs.getString("nick"));
-            }
-            return nicks;
-        }catch(Exception e){
-            logger.error("There was an exception returning nick grouped nicks.",e);
-        }
-        return null;
-
-    }
-
-    public static Integer getNickGroup(String username){
-        try {
-            CloseableStatement stmt = Connector.getStatement(Queries
-                    .getQuery("find_nick_group"), username
-                    .toLowerCase());
-            ResultSet rs = stmt.execute();
-            if (rs != null && rs.next()) {
-                Integer id = rs.getInt("id");
-                stmt.close();
-                return id;
-            }else{
-                stmt.close();
-                return null;
-            }
-        }catch(Exception e){
-            logger.error("Error looking up the nick_group id for " + username,e);
-        }
-        return null;
-    }
+    return -1;
+  }
 
 
 }

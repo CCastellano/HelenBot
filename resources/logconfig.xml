@@ -1,23 +1,13 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<!DOCTYPE log4j:configuration SYSTEM "log4j.dtd">
-<log4j:configuration debug="true"
-	xmlns:log4j='http://jakarta.apache.org/log4j/'>
-
-	<appender name="file" class="org.apache.log4j.RollingFileAppender">
-	   <param name="append" value="true" />
-	   <param name="maxFileSize" value="10MB" />
-	   <param name="maxBackupIndex" value="500" />
-	   <!-- For Tomcat -->
-	   <param name="file" value="${LOG_HOME}/helen_bot.log" />
-	   <layout class="org.apache.log4j.PatternLayout">
-		<param name="ConversionPattern"
-			value="%d{yyyy-MM-dd HH:mm:ss} %-5p %c{1}:%L | %m%n" />
-	   </layout>
-	</appender>
-
-	<root>
-		<level value="INFO" />
-		<appender-ref ref="file" />
-	</root>
-
-</log4j:configuration>
+<Configuration>
+  <Appenders>
+    <File name="file" fileName="${LOG_HOME}/helen_bot.log" append="true" maxFileSize="10MB" maxBackupIndex="500">
+      <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss} %-5p %c{1}:%L | %m%n"/>
+    </File>
+  </Appenders>
+  <Loggers>
+    <Root level="INFO">
+      <AppenderRef ref="file" />
+    </Root>
+  </Loggers>
+</Configuration>

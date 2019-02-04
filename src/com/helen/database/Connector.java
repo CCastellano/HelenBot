@@ -1,89 +1,32 @@
 package com.helen.database;
 
+import com.helen.*;
+import org.apache.commons.dbcp2.BasicDataSource;
+
+import javax.annotation.Nullable;
+import javax.sql.DataSource;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
-import java.util.Date;
 
-import org.apache.log4j.Logger;
+public final class Connector {
+  private static final DataSource pool = new BasicDataSource() {{
+    this.setUrl(Utils.env("DB_URL"));
+    this.setUsername(Utils.env("DB_USER"));
+    this.setPassword(Utils.env("DB_PASSWORD"));
+  }};
 
-public class Connector {
+  public static Connection getConnection() throws SQLException {
+    return pool.getConnection();
+  }
 
-	private final static Logger logger = Logger.getLogger(Connector.class);
-
-	public static Connection getConnection() {
-		try {
-			return DriverManager.getConnection(
-					"jdbc:postgresql://127.0.0.1/helen_db", "helen_bot",
-					"helenrevolver");
-		} catch (Exception e) {
-			logger.error("Exception getting connection.",e);
-			return null;
-		}
-	}
-
-	public static CloseableStatement getStatement(String queryString) {
-		try {
-			Connection conn = getConnection();
-			return new CloseableStatement(conn.prepareStatement(queryString),
-					conn);
-		} catch (Exception e) {
-			// TODO exception text
-		}
-		return new CloseableStatement();
-	}
-
-	public static CloseableStatement getStatement(String queryString,
-			Object... args) {
-		try {
-			Connection conn = getConnection();
-			PreparedStatement stmt = conn.prepareStatement(queryString);
-			int i = 1;
-			if (!(args.length == 1 && args[0] == null)) {
-				for (Object o: args) {
-					if (o instanceof String) {
-						stmt.setString(i, (String) o);
-					} else if (o instanceof Integer) {
-						stmt.setInt(i, (Integer) o);
-					} else if (o instanceof java.sql.Timestamp) {
-						stmt.setTimestamp(i, (java.sql.Timestamp) o);
-					} else if (o instanceof Boolean) {
-						stmt.setBoolean(i, (Boolean) o);
-					} else if (o instanceof Date) {
-						stmt.setDate(i, new java.sql.Date(((Date) o).getTime()));
-					} else {
-						logger.error("Unknown object type: " + o.toString());
-					}
-					i++;
-				}
-			}
-			return new CloseableStatement(stmt, conn);
-		} catch (Exception e) {
-			logger.error("Error constructing statement.", e);
-		}
-		return null;
-	}
-	
-	public static CloseableStatement getArrayStatement(String queryString,
-			String[] args) {
-		try {
-			String s = "'%";
-			for(int i = 0; i < args.length; i++){
-				s = s + args[i] + '%';
-				if((i + 1) < args.length ){
-					s = s + ",";
-				}
-			}
-
-			Connection conn = getConnection();
-			PreparedStatement stmt = conn.prepareStatement(queryString);
-			stmt.setString(1, s);
-			stmt.setString(2, s);
-			return new CloseableStatement(stmt, conn);
-		} catch (Exception e) {
-			logger.error("Error constructing statement.", e);
-		}
-		return null;
-	}
+  public static PreparedStatement prepare(Connection conn, @Nullable String query, String orDefault,
+                                          Object...args) throws SQLException {
+    PreparedStatement stmt = conn
+        .prepareStatement(query == null ? orDefault : Statements.get(query, orDefault));
+    for (int i = 0; i < args.length; i++) {
+      stmt.setObject(i + 1, args[i]);
+    }
+    return stmt;
+  }
 }

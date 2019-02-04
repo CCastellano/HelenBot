@@ -1,8 +1,14 @@
 package com.helen.database;
 
-import com.helen.commands.Command;
-import com.helen.commands.CommandData;
-import com.helen.search.WikipediaSearch;
+import com.helen.*;
+import com.helen.commands.*;
+import com.helen.database.selectable.*;
+import com.helen.error.*;
+import org.apache.commons.cli.CommandLine;
+import org.apache.commons.cli.CommandLineParser;
+import org.apache.commons.cli.DefaultParser;
+import org.apache.commons.cli.Options;
+import org.apache.commons.cli.ParseException;
 import org.apache.log4j.Logger;
 import org.apache.xmlrpc.XmlRpcException;
 import org.apache.xmlrpc.client.XmlRpcClient;
@@ -10,532 +16,448 @@ import org.apache.xmlrpc.client.XmlRpcClientConfigImpl;
 import org.apache.xmlrpc.client.XmlRpcSun15HttpTransportFactory;
 import org.jibble.pircbot.Colors;
 
-import java.io.BufferedInputStream;
-import java.io.DataInputStream;
+import javax.annotation.Nullable;
+import java.io.BufferedReader;
+import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.net.MalformedURLException;
 import java.net.URL;
-import java.sql.*;
-import java.text.SimpleDateFormat;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.function.BiConsumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class Pages {
+public final class Pages {
+  private static final Logger logger = Logger.getLogger(Pages.class);
 
-	
-	private static final Long YEARS = 1000 * 60 * 60 * 24 * 365l;
-	private static final Long DAYS = 1000 * 60 * 60 * 24l;
-	private static final Long HOURS = 1000 * 60l * 60;
-	private static final Long MINUTES = 1000 * 60l;
-	private static final Logger logger = Logger.getLogger(Pages.class);
-	private static XmlRpcClientConfigImpl config;
-	private static XmlRpcClient client;
-	private static Long lastLc = System.currentTimeMillis() - 20000;
-	private static HashMap<String, ArrayList<Selectable>> storedEvents = new HashMap<String, ArrayList<Selectable>>();
+  private static final CommandLineParser CLI = new DefaultParser();
+  private static final String[] STRING_0     = new String[0];
+  private static final long LC_COOLDOWN      = 15_000;
+  private static final String LC_PAGE        = "http://www.scp-wiki.net/most-recently-created";
+  private static final int NUM_LC_RESULTS    = 3;
+  private static final String URL            = "https://www.wikidot.com/xml-rpc-api.php";
+  private static final Pattern TD_PATTERN    =
+      Pattern.compile("<td style=\"vertical-align: top;\"><a href=\"/(.+)\">(.+)</a></td>");
 
-	static {
-		config = new XmlRpcClientConfigImpl();
-		try {
-			config.setServerURL(new URL(Configs.getSingleProperty(
-					"wikidotServer").getValue()));
-			config.setBasicUserName(Configs.getSingleProperty("appName")
-					.getValue());
-			config.setBasicPassword(Configs.getSingleProperty("wikidotapikey")
-					.getValue());
-			config.setEnabledForExceptions(true);
-			config.setConnectionTimeout(10 * 1000);
-			config.setReplyTimeout(30 * 1000);
+  private static long lastLc = System.currentTimeMillis() - 20_000;
 
-			client = new XmlRpcClient();
-			client.setTransportFactory(new XmlRpcSun15HttpTransportFactory(
-					client));
-			client.setTypeFactory(new XmlRpcTypeNil(client));
-			client.setConfig(config);
+  private static final Options searchOpts = new Options() {{
+    this.addOption("e", "exclude", true, "exclude page titles");
+    this.addOption("t", "tag", true, "limit to a tag");
+    this.addOption("a", "author", true, "limit to an author");
+    this.addOption("u", "summary", false, "summarize results");
+  }};
 
-		} catch (Exception e) {
-			logger.error("There was an exception", e);
-		}
+  private static final XmlRpcClient client = new XmlRpcClient() {{
+    try {
+      XmlRpcClientConfigImpl config = new XmlRpcClientConfigImpl();
+      config.setServerURL(new URL(URL));
+      config.setBasicUserName(Configs.getSingleProperty("appName").value);
+      config.setBasicPassword(Configs.getSingleProperty("wikidotapikey").value);
+      config.setEnabledForExceptions(true);
+      config.setConnectionTimeout(10_000);
+      config.setReplyTimeout(30_000);
 
-	}
+      this.setTransportFactory(new XmlRpcSun15HttpTransportFactory(this));
+      this.setTypeFactory(new XmlRpcTypeNil(this));
+      this.setConfig(config);
+    } catch (MalformedURLException e) {
+      logger.error("Exception initializing XML-RPC", e);
+      throw new InvalidConfigurationException("Invalid XML-RPC settings", e);
+    }
+  }};
 
-	private static Object pushToAPI(String method, Object... params)
-			throws XmlRpcException {
-		return (Object) client.execute(method, params);
-	}
+  @SuppressWarnings("unchecked")
+  public static <T> T pushToAPI(String method, Map<String, Object> params) throws XmlRpcException {
+    params.put("site", Configs.getSingleProperty("site").value);
+    Object o = client.execute(method, new Object[]{params});
+    try {
+      return (T) o;
+    } catch (ClassCastException e) {
+      throw new XmlRpcException("Invalid response", e);
+    }
+  }
 
-	public static ArrayList<String> lastCreated() {
-		if (System.currentTimeMillis() - lastLc > 15000) {
-			ArrayList<String> pagelist = new ArrayList<String>();
-			try {
-				String regex = "<td style=\"vertical-align: top;\"><a href=\"\\/(.+)\">(.+)<\\/a><\\/td>";
-				Pattern r = Pattern.compile(regex);
-				String s;
-				URL u = new URL("http://www.scp-wiki.net/most-recently-created");
-				InputStream is = u.openStream();
-				DataInputStream dis = new DataInputStream(new BufferedInputStream(is));
-				int i = 0;
-				while ((s = dis.readLine()) != null) {
-					Matcher m = r.matcher(s);
-					if (m.matches()) {
-						if (i++ < 3) {
-							pagelist.add(m.group(1));
-						} else {
-							dis.close();
-							break;
-						}
-					}
-				}
-			} catch (Exception e) {
-				logger.error(
-						"There was an exception attempting to grab last created",
-						e);
-			}
-			lastLc = System.currentTimeMillis();
-			return pagelist;
-		}
+  public static String[] listPages() throws XmlRpcException {
+    Map<String, Object> params = new HashMap<>();
+    params.put("order", "created_at desc");
+    Object[] pages = pushToAPI("pages.select", params);
+    return Arrays
+        .stream(pages)
+        .map(Object::toString)
+        .filter(x -> !x.contains(":"))
+        .toArray(String[]::new);
+  }
 
-		return null;
+  public static void walk(String[] titles, BiConsumer<Page, String[]> f)
+      throws XmlRpcException {
+    for (String[] chunk : Utils.chunk(10, titles)) {
+      Map<String, Object> params = new HashMap<>();
+      params.put("pages", chunk);
+      Map<String, Map<String, Object>> result = pushToAPI("pages.get_meta", params);
+      for (Map<String, Object> obj : result.values()) {
+        Object[] tags = (Object[]) obj.get("tags");
+        f.accept(new Page(obj), Arrays.copyOf(tags, tags.length, String[].class));
+      }
+    }
+  }
 
-	}
+  public static String[] lastCreated(CommandData data)
+      throws IncorrectUsageException, IOException, XmlRpcException, SQLException {
+    if (System.currentTimeMillis() - lastLc <= LC_COOLDOWN) {
+      throw new IncorrectUsageException("I can't do that yet.");
+    }
+    lastLc = System.currentTimeMillis();
+    URL u = new URL(LC_PAGE);
+    try (
+        InputStream is = u.openStream();
+        BufferedReader br = new BufferedReader(new InputStreamReader(is))
+    ) {
+      String[] lc = new String[NUM_LC_RESULTS];
+      int i = 0;
+      String s;
+      while ((s = br.readLine()) != null) {
+        Matcher m = TD_PATTERN.matcher(s);
+        if (m.matches()) {
+          if (i < lc.length) {
+            lc[i++] = m.group(1);
+          } else {
+            break;
+          }
+        }
+      }
+      return getPageInfo(lc, Configs.commandEnabled(data, "lcratings"));
+    }
+  }
 
-	private static String getTitle(String pagename) {
-		String pageName = null;
-		try {
-			CloseableStatement stmt = Connector.getStatement(
-					Queries.getQuery("getPageByName"), pagename);
-			ResultSet rs = stmt.getResultSet();
-			if (rs != null && rs.next()) {
-				pageName = rs.getString("title");
-				if(rs.getBoolean("scppage")){
-					if(!rs.getString("scptitle").equalsIgnoreCase("[ACCESS DENIED]")){
-						pageName = rs.getString("scptitle");
-					}
-				}
-			}
-			rs.close();
-			stmt.close();
-		} catch (Exception e) {
-			logger.error("Exception getting title", e);
-		}
-		return pageName;
+  @Nullable
+  private static String getTitle(String pagename) throws SQLException {
+    try (
+        Connection conn = Connector.getConnection();
+        PreparedStatement stmt = Connector.prepare(conn, "getPageByName",
+            "SELECT * FROM pages WHERE pagename = ?",
+            pagename
+        );
+        ResultSet rs = stmt.executeQuery()
+    ) {
+      if (rs.next()) {
+        String scptitle = rs.getString("scptitle");
+        if (!"[ACCESS DENIED]".equalsIgnoreCase(scptitle)) {
+          return scptitle;
+        }
+      }
+      return null;
+    }
+  }
 
-	}
-	
-	public static String getPageInfo(String pagename,CommandData data){
-		return getPageInfo(pagename, Configs.commandEnabled(data, "lcratings"));
-	}
-	
-	public static String getPageInfo(String pagename){
-		return getPageInfo(pagename, true);
-	}
+  @Nullable
+  public static String getPageInfo(String pagename) throws XmlRpcException, SQLException {
+    return getPageInfo(pagename, true);
+  }
 
-	public static String getPageInfo(String pagename, boolean ratingEnabled) {
-		SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss");
-		String targetName = pagename.toLowerCase();
-		Map<String, Object> params = new HashMap<String, Object>();
-		params.put("site", Configs.getSingleProperty("site").getValue());
-		String[] target = new String[] { targetName.toLowerCase() };
-		params.put("pages", target);
-		ArrayList<String> keyswewant = new ArrayList<String>();
-		keyswewant.add("title_shown");
-		keyswewant.add("rating");
-		keyswewant.add("created_at");
-		keyswewant.add("title");
-		keyswewant.add("created_by");
-		keyswewant.add("tags");
-		try {
-			@SuppressWarnings("unchecked")
-			HashMap<String, HashMap<String, Object>> result = (HashMap<String, HashMap<String, Object>>) pushToAPI(
-					"pages.get_meta", params);
+  private static String parsePageInfo(Map<String, Object> obj, boolean ratingEnabled)
+      throws SQLException {
+    StringBuilder str = new StringBuilder(Colors.BOLD);
 
-			StringBuilder returnString = new StringBuilder();
-			returnString.append(Colors.BOLD);
+    String title = getTitle((String) obj.get("fullname"));
+    str.append(obj.get("title_shown"));
+    if (title != null && !title.isEmpty()) {
+      str .append(": ")
+          .append(title);
+    }
+    str .append(Colors.NORMAL)
+        .append(" (");
+    if (ratingEnabled) {
+      str .append("Rating: ")
+          .append(Utils.fmtRating((int) obj.get("rating")))
+          .append("; ");
+    }
+    System.out.println(obj.get("created_at"));
+    return str
+        .append("written ")
+        .append(Utils.findTime(Utils.parseZonedTime((String) obj.get("created_at"))))
+        .append(" by ")
+        .append(obj.get("created_by"))
+        .append(") - http://scp-wiki.net/")
+        .append(obj.get("fullname"))
+        .toString();
+  }
 
-			String title = getTitle(targetName);
-			if (title == null || title.isEmpty() || title.equals("[ACCESS DENIED]")) {
-				returnString.append(result.get(targetName).get("title_shown"));
-			} else {
-				returnString.append(result.get(targetName).get("title_shown"));
-				if (!title.equalsIgnoreCase((String) result.get(targetName).get("title_shown"))) {
-					returnString.append(": ");
-					returnString.append(title);
-				}
-			}
-			returnString.append(Colors.NORMAL);
-			returnString.append(" (");
-			if(ratingEnabled){
-				returnString.append("Rating: ");
-				Integer rating = (Integer) result.get(targetName).get("rating");
-				if (rating > 0) {
-					returnString.append("+");
-				}
-				returnString.append(rating);
-				returnString.append(". ");
-			}
-			returnString.append("Written ");
-			returnString.append(findTime(df.parse((String) result.get(targetName)
-					.get("created_at")).getTime()));
-			returnString.append("By: ");
-			returnString.append(result.get(targetName).get("created_by"));
-			returnString.append(")");
-			returnString.append(" - ");
-            returnString.append("http://scp-wiki.net/");
-			returnString.append(targetName);
+  public static String[] getPageInfo(String[] pagenames, boolean ratingEnabled)
+      throws XmlRpcException, SQLException {
+    for (int i = 0; i < pagenames.length; i++) {
+      pagenames[i] = pagenames[i].toLowerCase();
+    }
 
-			return returnString.toString();
+    Map<String, Object> params = new HashMap<>();
+    params.put("pages", pagenames);
+    try {
+      Map<String, Map<String, Object>> result = pushToAPI("pages.get_meta", params);
 
-		} catch (Exception e) {
-			logger.error("There was an exception retreiving metadata", e);
-		}
+      String[] results = new String[pagenames.length];
+      for (int i = 0; i < results.length; i++) {
+        results[i] = parsePageInfo(result.get(pagenames[i]), ratingEnabled);
+      }
+      return results;
+    } catch (ClassCastException ignored) {
+      return STRING_0;
+    }
+  }
 
-		return Command.NOT_FOUND;
-	}
-	
-	public static String getAuthorDetail(CommandData data, String user){
-		user = user.toLowerCase();
-		try{
-			
-			ArrayList<Selectable> authors = new ArrayList<Selectable>();
-			CloseableStatement stmt = Connector.getStatement(Queries.getQuery("findAuthors"), "%" + user + "%");
-			ResultSet rs = stmt.getResultSet();
-			while(rs != null && rs.next()){
-				authors.add(new Author(rs.getString("created_by")));
-			}
-			rs.close();
-			stmt.close();
+  @Nullable
+  public static String getPageInfo(String pagename, boolean ratingEnabled)
+      throws XmlRpcException, SQLException {
+    String[] results = getPageInfo(new String[]{pagename}, ratingEnabled);
+    return results.length == 0 ? null : results[0];
+  }
 
-			if(authors.isEmpty()){
-				return "I couldn't find any author by that name.";
-			}
+  public static String getAuthorDetail(CommandData data, String user) throws SQLException {
+    user = user.toLowerCase();
+    try (
+        Connection conn = Connector.getConnection();
+        PreparedStatement stmt = Connector.prepare(conn, "findAuthors",
+            "SELECT (created_by) FROM pages WHERE created_by ILIKE ? " +
+            "UNION SELECT (created_by) FROM attributions WHERE created_by ILIKE ?",
+            '%' + user + '%', '%' + user + '%'
+        );
+        ResultSet rs = stmt.executeQuery()
+    ) {
+      List<Selectable> authors = new ArrayList<>();
+      while (rs.next()) {
+        authors.add(new Author(rs));
+      }
 
-			if(authors.size() > 1){
-				storedEvents.put(data.getSender(), authors);
-				StringBuilder str = new StringBuilder();
-				str.append("Did you mean: ");
-				String prepend = "";
-				for (Selectable author : authors) {
-					str.append(prepend);
-					prepend=",";
-					str.append(Colors.BOLD);
-					str.append(((Author)author).getAuthor());
-					str.append(Colors.NORMAL);
-				}
-				str.append("?");
-				return str.toString();
-			}else{
-				return getAuthorDetailsPages(((Author)authors.get(0)).getAuthor());
-			}
-			
-			
-			
-		}catch(Exception e){
-			logger.error("Error constructing author detail",e);
-		}
-		
-		return "I apologize, there's been an error.  Please inform DrMagnus there's an error with author details.";
-	}
+      if (authors.isEmpty()) {
+        return "I couldn't find any author by that name.";
+      } else if (authors.size() > 1) {
+        return StoredCommands.store(data.sender, authors);
+      } else {
+        return getAuthorDetailsPages(((Author) authors.get(0)).authorName);
+      }
+    }
+  }
 
-	public static String disambiguateWikipedia(CommandData data, List<String> titles){
-		if(titles.isEmpty()){
-			return "I couldn't find any choices.";
-		}
-		try{
-				ArrayList<Selectable> choices = new ArrayList<>();
-				for(String title : titles){
-					choices.add(new WikipediaAmbiguous(data, title));
-				}
-				storedEvents.put(data.getSender(), choices);
-				StringBuilder str = new StringBuilder();
-				str.append("Did you mean: ");
-				String prepend = "";
-				for (Selectable choice : choices) {
-					str.append(prepend);
-					prepend=",";
-					str.append(Colors.BOLD);
-					str.append(((WikipediaAmbiguous)choice).getTitle());
-					str.append(Colors.NORMAL);
-				}
-				str.append("?");
-				String result = str.toString();
-				result = result.substring(0, Math.min(400, result.length()));
-				int lastComma = result.lastIndexOf(',');
-				if(lastComma != -1){
-					result = result.substring(0, lastComma);
-				}
-				return result;
-		}catch(Exception e){
-			logger.error("Error constructing choice",e);
-		}
+  private static List<Page> getTagged(String user, String tag) throws SQLException {
+    List<Page> pages = new ArrayList<>();
+    try (
+        Connection conn = Connector.getConnection();
+        PreparedStatement stmt = Connector.prepare(conn, "findTagged",
+            "SELECT * FROM pages " +
+            "JOIN pagetags ON pages.pageid = pagetags.pageid " +
+            "JOIN tags ON pagetags.tagid = tags.tagid " +
+            "WHERE tags.tag = ? AND (created_by = ? OR pages.pageid IN " +
+            "(SELECT pageid FROM attributions WHERE attributions.created_by = ?))",
+            tag, user, user
+        );
+        ResultSet rs = stmt.executeQuery()
+    ) {
+      while (rs.next()) {
+        pages.add(new Page(rs));
+      }
+    }
+    return pages;
+  }
 
-		return "I apologize, there's been an error.  Please inform DrMagnus there's an error with author details.";
-	}
-	
-	public static String getAuthorDetailsPages(String user){
-		String lowerUser = user.toLowerCase();
-		Page authorPage = null;
-		try{
-		CloseableStatement stmt = Connector.getStatement(Queries.getQuery("findAuthorPage"), lowerUser);
-		ResultSet rs = stmt.getResultSet();
-		if(rs != null && rs.next()){
-			authorPage = new Page(rs.getString("pagename"),
-					rs.getString("title"),
-					rs.getBoolean("scppage"),
-					rs.getString("scptitle"));
-		}
-		rs.close();
-		stmt.close();
-		
-		ArrayList<Page> pages = new ArrayList<Page>();
-		stmt = Connector.getStatement(Queries.getQuery("findSkips"), lowerUser);
-		rs = stmt.getResultSet();
-		while(rs != null && rs.next()){
-			pages.add( new Page(rs.getString("pagename"),
-					rs.getString("title"),
-					rs.getInt("rating"),
-					rs.getString("created_by"),
-					rs.getTimestamp("created_on"),
-					rs.getBoolean("scppage"),
-					rs.getString("scptitle")));
-		}
-		
-		stmt = Connector.getStatement(Queries.getQuery("findTales"), lowerUser);
-		rs = stmt.getResultSet();
-		while(rs != null && rs.next()){
-			pages.add( new Page(rs.getString("pagename"),
-					rs.getString("title"),
-					rs.getInt("rating"),
-					rs.getString("created_by"),
-					rs.getTimestamp("created_on"),
-					rs.getBoolean("scppage"),
-					rs.getString("scptitle")));
-		}
-		
-		
-		StringBuilder str = new StringBuilder();
-		str.append(Colors.BOLD);
-		str.append(user);
-		str.append(Colors.NORMAL);
-		str.append(" - ");
-		
-		if(authorPage != null){
-			str.append("(");
-			str.append("http://www.scp-wiki.net/");
-			str.append(authorPage.getPageLink());
-			str.append(") ");
-		}
-		String authorPageName = authorPage == null ? "null" : authorPage.getPageLink();
-		int scps = 0;
-		int tales = 0;
-		int rating = 0;
-			int total = 0;
-		Timestamp ts = new java.sql.Timestamp(0l);
-		Page latest = null;
-		for(Page p: pages){
-			total++;
-			if(!p.getPageLink().equals(authorPageName)){
-				if(p.getScpPage()){
-					scps++;
-				}else{
-					tales++;
-				}
-				rating += p.getRating();
-				
-				if(p.getCreatedAt().compareTo(ts) > 0){
-					ts = p.getCreatedAt();
-					latest = p;
-				}
-			}
-		}
-		str.append("has ");
-		str.append(Colors.BOLD);
-			str.append(total);
-		str.append(Colors.NORMAL);
-		str.append(" pages. (");
-		str.append(Colors.BOLD);
-		str.append(scps);
-		str.append(Colors.NORMAL);
-		str.append(" SCP articles, ");
-		str.append(Colors.BOLD);
-		str.append(tales);
-		str.append(Colors.NORMAL);
-		str.append(" Tales).");
-		str.append(" They have ");
-		str.append(Colors.BOLD);
-		str.append(rating);
-		str.append(Colors.NORMAL);
-		str.append(" net upvotes with an average of ");
-		str.append(Colors.BOLD);
-		long avg = Math.round((rating) / (tales + scps));
-		str.append(avg);
-		str.append(Colors.NORMAL);
-		str.append(".  Their latest page is ");
-		str.append(Colors.BOLD);
-		if(latest.getScpPage()){
-			str.append(latest.getTitle());
-			str.append(": ");
-			str.append(latest.getScpTitle());
-		}else{
-			str.append(latest.getTitle());
-		}
-		str.append(Colors.NORMAL);
-		str.append(" at ");
-		str.append(Colors.BOLD);
-		str.append(latest.getRating());
-		str.append(Colors.NORMAL);
-		str.append(".");
-		
-		return str.toString();
-		} catch (Exception e){
-			logger.error("There was an exception retreiving author pages stuff",e);
-		}
-		
-		return "I'm sorry there was some kind of error";
-	}
+  public static String getAuthorDetailsPages(String user) throws SQLException {
+    String lowerUser = user.toLowerCase();
+    try (
+        Connection conn = Connector.getConnection();
+        PreparedStatement findAuthorPage = Connector.prepare(conn, "findAuthorPage",
+            "SELECT * FROM pages WHERE pagename = ?",
+            lowerUser
+        );
+        PreparedStatement findLatest = Connector.prepare(conn, "findLatest",
+            "SELECT * FROM PAGES WHERE created_by = ? OR pages.pageid IN " +
+            "(SELECT pageid FROM attributions WHERE attributions.created_by = ?) " +
+            "ORDER BY created_on DESC LIMIT 1",
+            lowerUser, lowerUser
+        );
+        ResultSet rsAuthorPage = findAuthorPage.executeQuery();
+        ResultSet rsLatest = findLatest.executeQuery()
+    ) {
+      Page authorPage = rsAuthorPage.next() ? new Page(rsAuthorPage) : null;
+      Page latest = rsLatest.next() ? new Page(rsLatest) : null;
 
-	public static String getPotentialTargets(String[] terms, String username) {
-		Boolean exact = terms[1].equalsIgnoreCase("-e");
-		int indexOffset = 1;
-		if(exact){
-			indexOffset = 2;
-		}
-		ArrayList<Selectable> potentialPages = new ArrayList<Selectable>();
-		String[] lowerterms = new String[terms.length - indexOffset];
-		for (int i = indexOffset ; i < terms.length; i++) {
-			lowerterms[i - indexOffset] = terms[i].toLowerCase();
-			logger.info(lowerterms[i - indexOffset]);
-		}
-		try {
-			ResultSet rs = null;
-			CloseableStatement stmt = null;
-			PreparedStatement state = null;
-			Connection conn = null;
-			if(exact){
-				stmt = Connector.getArrayStatement(
-						Queries.getQuery("findskips"), lowerterms);
-				logger.info(stmt.toString());
-				rs = stmt.getResultSet();
-			}else{
-				String query = "select pagename,title,scptitle,scppage from pages where";
-				for(int j = indexOffset; j < terms.length; j++){
-					if(j != indexOffset){
-						query +=" and";
-					}
-					query += " lower(coalesce(scptitle, title)) like ?";
-				}
-				conn = Connector.getConnection();
-				state = conn.prepareStatement(query);
-				for(int j = indexOffset; j < terms.length; j++){
-					state.setString(j - (indexOffset - 1), "%"+terms[j].toLowerCase()+"%");
-				}
-				logger.info(state.toString());
-				rs = state.executeQuery();
-			}
-			while (rs != null && rs.next()) {
-				potentialPages.add(new Page(rs.getString("pagename"), rs
-						.getString("title"), rs.getBoolean("scppage"), rs
-						.getString("scptitle")));
-			}
-			if(stmt != null){
-				stmt.close();
-			}
-			
-			if(conn != null){
-				conn.close();
-			}
-			if(rs != null){
-				rs.close();
-			}
-		} catch (SQLException e) {
-			logger.error("There was an issue grabbing potential SCP pages", e);
-		}
+      String authorPageName = authorPage == null ? null : authorPage.pageName;
 
-		if (potentialPages.size() > 1) {
-			storedEvents.put(username, potentialPages);
-			StringBuilder str = new StringBuilder();
-			str.append("Did you mean : ");
+      Collection<Page> scps  = getTagged(lowerUser, "scp");
+      Collection<Page> tales = getTagged(lowerUser, "tale");
+      Collection<Page> gois  = getTagged(lowerUser, "goi-format");
+      Collection<Page> hubs  = getTagged(lowerUser, "hub");
+      Collection<Page> art   = getTagged(lowerUser, "artwork");
 
-			for (Selectable p : potentialPages) {
-				Page page = (Page)p; 
-				str.append(Colors.BOLD);
-				str.append(page.getScpPage() ? page.getTitle()
-						+ ": " + page.getScpTitle()  : page.getTitle());
-				str.append(Colors.NORMAL);
-				str.append(", ");
-			}
-			str.append("?");
-			return str.toString();
-		} else {
-			if (potentialPages.size() == 1) {
-				return getPageInfo(((Page)potentialPages.get(0)).getPageLink());
-			} else {
-				return Command.NOT_FOUND;
-			}
-		}
-	}
+      Collection<Page> all = new HashSet<>(scps);
+      all.addAll(tales);
+      all.addAll(gois);
+      all.addAll(hubs);
+      all.addAll(art);
 
-	public static String getStoredInfo(String index, String username) {
-		try {
-			Selectable s = storedEvents.get(username).get(Integer.parseInt(index) - 1);
-			if(s instanceof Page){
-				return getPageInfo((String)s.selectResource());
-			}else if(s instanceof Author){
-				return getAuthorDetailsPages((String)s.selectResource());
-			}else if(s instanceof WikipediaAmbiguous){
-				WikipediaAmbiguous choice = (WikipediaAmbiguous) s;
-				CommandData data = choice.getData();
-				return WikipediaSearch.search(data, choice.getTitle());
-			}
-			
-		} catch (Exception e) {
-			logger.error("There was an exception getting stored info", e);
-		}
- 
-		return "Either the command was malformed, or I have nothing for you to get.";
-	}
+      int scpsSize  = scps.size();
+      int talesSize = tales.size();
+      int goisSize  = gois.size();
+      int hubsSize  = hubs.size();
+      int artSize   = art.size();
+      int allSize   = all.size();
 
-	
-	public static String findTime(Long time){
-		//compensate for EST (helen runs in EST)
-		time = (System.currentTimeMillis() + HOURS * 4) - time;
-		Long diff = 0l;
-		if(time >= YEARS){
-			diff = time/YEARS;
-			return (time / YEARS) + " year" + (diff > 1 ? "s" : "") + " ago ";
-			
-		}else if( time >= DAYS){
-			diff = time/DAYS;
-			return (time / DAYS) + " day" + (diff > 1 ? "s" : "") + " ago ";
-			
-		}else if(time >= HOURS){
-			diff = (time/HOURS);
-			return (time / HOURS) + " hour" + (diff > 1 ? "s" : "") + " ago ";
-			
-		}else if( time >= MINUTES){
-			diff = time/MINUTES;
-			return (time / MINUTES) + " minute" + (diff > 1 ? "s" : "") + " ago ";
-			
-		}else{
-			return "A few seconds ago ";
-		}
-	
-	}
-	
-	
-		
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
+      int rating = all
+          .stream()
+          .filter(x -> !x.pageName.equals(authorPageName))
+          .mapToInt(x -> x.rating)
+          .sum();
+
+      StringBuilder str = new StringBuilder(Colors.BOLD)
+          .append(user)
+          .append(Colors.NORMAL);
+
+      if (authorPage != null) {
+        str .append(" - ")
+            .append("http://www.scp-wiki.net/")
+            .append(authorPage.pageName)
+            .append(" -");
+      }
+      str .append(" has ")
+          .append(Colors.BOLD)
+          .append(allSize)
+          .append(Colors.NORMAL)
+          .append(" page");
+      if (allSize > 0) {
+        str.append('s');
+      }
+      str.append(" (");
+
+      boolean comma = Utils.count(false, str, scpsSize, "SCP article");
+      comma = Utils.count(comma, str, talesSize, "tale");
+      comma = Utils.count(comma, str, goisSize, "GOI article");
+      comma = Utils.count(comma, str, hubsSize, "hub");
+      Utils.count(comma, str, artSize, "artwork page");
+
+      str .append("). They have ")
+          .append(Colors.BOLD)
+          .append(Utils.fmtRating(rating))
+          .append(Colors.NORMAL)
+          .append(" net votes with an average of ")
+          .append(Colors.BOLD)
+          .append(Utils.fmtRating(StrictMath.round(rating / (float) allSize)))
+          .append(Colors.NORMAL)
+          .append('.');
+      if (latest != null) {
+        str .append("  Their latest page is ")
+            .append(Colors.BOLD)
+            .append(latest.title)
+            .append(Colors.NORMAL)
+            .append(" at ")
+            .append(Colors.BOLD)
+            .append(Utils.fmtRating(latest.rating))
+            .append(Colors.NORMAL)
+            .append('.');
+      }
+      return str.toString();
+    }
+  }
+
+  private static String[] safe(@Nullable String[] x) {
+    return x == null ? STRING_0 : x;
+  }
+
+  @Nullable
+  public static String getPotentialTargets(String[] terms, String username)
+      throws XmlRpcException, SQLException, ParseException {
+    StringBuilder str = new StringBuilder("SELECT * FROM pages WHERE TRUE" );
+    CommandLine cmd = CLI.parse(searchOpts, Arrays.copyOfRange(terms, 1, terms.length));
+    boolean summarize = cmd.hasOption('u');
+    Collection<String> params = new ArrayList<>();
+    for (String word : cmd.getArgs()) {
+      str.append(" AND (title ILIKE ? OR scptitle ILIKE ?)" );
+      String escape = '%' + word + '%';
+      params.add(escape);
+      params.add(escape);
+    }
+    for (String tag : safe(cmd.getOptionValues('t'))) {
+      str.append(" AND pageid IN (" )
+         .append("SELECT pageid FROM pagetags JOIN tags ON pagetags.tagid = tags.tagid " )
+         .append("WHERE tags.tag = ?)" );
+      params.add(tag);
+    }
+    for (String exclude : safe(cmd.getOptionValues('e'))) {
+      str.append(" AND title NOT ILIKE ? AND scptitle NOT ILIKE ?" );
+      String escape = '%' + exclude + '%';
+      params.add(escape);
+      params.add(escape);
+    }
+    for (String author : safe(cmd.getOptionValues('a'))) {
+      str.append(" AND (created_by = ? OR pageid IN " )
+         .append("(SELECT pageid FROM attributions WHERE attributions.created_by = ?))" );
+      String authorLower = author.toLowerCase();
+      params.add(authorLower);
+      params.add(authorLower);
+    }
+    List<Selectable> potentialPages = new ArrayList<>();
+    try (
+        Connection conn = Connector.getConnection();
+        PreparedStatement stmt = Connector.prepare(conn, null, str.toString(), params.toArray());
+        ResultSet rs = stmt.executeQuery()
+    ) {
+      while (rs.next()) {
+        potentialPages.add(new Page(rs));
+      }
+    }
+    if (summarize && !potentialPages.isEmpty()) {
+      int rating = 0;
+      Collection<String> authors = new HashSet<>();
+      Timestamp oldest = null;
+      Timestamp newest = null;
+      Page highest = null;
+
+      for (Selectable x : potentialPages) {
+        Page page = (Page) x;
+        rating += page.rating;
+        if (page.createdBy != null) {
+          authors.add(page.createdBy);
+        }
+        if (oldest == null || page.createdOn.before(oldest)) {
+          oldest = page.createdOn;
+        }
+        if (newest == null || page.createdOn.after(newest)) {
+          newest = page.createdOn;
+        }
+        if (highest == null || highest.rating < page.rating) {
+          highest = page;
+        }
+      }
+
+      return "Found " +
+             Colors.BOLD + potentialPages.size() + Colors.NORMAL +
+             " pages by " +
+             Colors.BOLD + authors.size() + Colors.NORMAL +
+             " authors. They have a total rating of " +
+             Colors.BOLD + Utils.fmtRating(rating) + Colors.NORMAL +
+             ", with an average of " +
+             Colors.BOLD + Utils.fmtRating(rating / potentialPages.size()) + Colors.NORMAL +
+             ". The pages were created between " +
+             Utils.findTime(oldest.getTime()) + " and " + Utils.findTime(newest.getTime()) +
+             ". The highest rated page is " +
+             Colors.BOLD + highest.title + Colors.NORMAL +
+             " at " +
+             Colors.BOLD + Utils.fmtRating(highest.rating) + Colors.NORMAL +
+             '.';
+    } else if (potentialPages.size() > 1) {
+      return StoredCommands.store(username, potentialPages);
+    } else if (potentialPages.size() == 1) {
+      return getPageInfo(((Page) potentialPages.get(0)).pageName);
+    } else {
+      return null;
+    }
+  }
 }

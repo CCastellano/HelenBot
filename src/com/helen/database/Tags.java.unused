@@ -1,0 +1,45 @@
+package com.helen.database;
+
+import org.apache.log4j.Logger;
+
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.HashMap;
+
+public class Tags {
+  private static final Logger logger = Logger.getLogger(Tags.class);
+
+  private static HashMap<String, Tag> tags = new HashMap<>();
+
+	public static Tag getTag(String tagname) {
+		return tags.computeIfAbsent(tagname, Tag::new);
+	}
+	
+	static ArrayList<Tag> getTags(String pagename) {
+    ArrayList<Tag> tags = new ArrayList<>();
+		try (CloseableStatement stmt = Connector.getStatement(Queries.getQuery("getTags", null), pagename)) {
+      ResultSet tagSet = stmt.getResultSet();
+
+			while (tagSet.next()) {
+				tags.add(Tags.getTag(tagSet.getString("tag")));
+			}
+		} catch (SQLException e) {
+			logger.error("There was an exception attempting to grab tags", e);
+		}
+		return tags;
+	}
+	
+	static void reloadTags() {
+		tags = new HashMap<>();
+		try (CloseableStatement stmt = Connector.getStatement(Queries.getQuery("getAllTags", null))) {
+			ResultSet tagSet = stmt.getResultSet();
+			while (tagSet.next()) {
+				tags.put(tagSet.getString("pagename"), Tags.getTag(tagSet.getString("tag")));
+			}
+		} catch (SQLException e) {
+			logger.error("There was an exception attempting to grab tags", e);
+		}
+	}
+
+}

@@ -1,88 +1,86 @@
 package com.helen.database;
 
 
+import org.apache.log4j.Logger;
 import org.jsoup.Jsoup;
-import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 
+import javax.annotation.Nullable;
 import java.io.IOException;
 import java.net.URL;
 import java.time.LocalDate;
-import java.time.chrono.ChronoLocalDate;
-import java.time.format.DateTimeFormatter;
-import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashSet;
-import java.util.List;
 
-public class Bans {
+public final class Bans {
+  private static final Logger logger = Logger.getLogger(Bans.class);
 
-	private static final HashSet<BanInfo> bansIn19 = new HashSet<>();
-	private static final HashSet<BanInfo> bansIn17 = new HashSet<>();
-	static DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MM/dd/yyyy");
-	public static void updateBans() throws IOException {
+	private static final String PAGE = "http://05command.wikidot.com/chat-ban-page";
+	private static final int TIMEOUT = 10_000;
 
-		bansIn19.clear();
+	private static final Collection<BanInfo> bansIn19 = new HashSet<>();
+	private static final Collection<BanInfo> bansIn17 = new HashSet<>();
 
-		URL url = new URL("http://05command.wikidot.com/chat-ban-page");
-		Document result = Jsoup.parse(url, 3000);
-		Element table19 = result.select("table").get(0);
-		Element table17 = result.select("table").get(1);
+	public static boolean updateBans() {
+	  try {
+      bansIn19.clear();
 
-		populateBanList(bansIn19, table19);
-		populateBanList(bansIn17, table17);
+      Elements result = Jsoup.parse(new URL(PAGE), TIMEOUT).getElementsByTag("table");
+      if (result.size() <= 1) {
+        logger.warn("Unable to parse ban page");
+        return false;
+      }
+      Element table19 = result.select("table").get(0);
+      Element table17 = result.select("table").get(1);
 
-
+      populateBanList(bansIn19, table19);
+      populateBanList(bansIn17, table17);
+      return true;
+    } catch (IOException e) {
+	    logger.warn("Error loading ban page", e);
+	    return false;
+    }
 	}
 
-	private static void populateBanList(HashSet<BanInfo> banList, Element table){
-		Elements rows = table.select("tr");
-		for(int i = 2; i < rows.size(); i++) {
+	private static void populateBanList(Collection<BanInfo> banList, Element table) {
+		Elements rows = table.getElementsByTag("tr");
+		for (int i = 2; i < rows.size(); i++) {
 			Element row = rows.get(i);
-			//skip first two rows
-			Elements entries = row.select("td");
-			String names = entries.get(0).text();
-			String ips = entries.get(1).text();
-			String date = entries.get(2).text();
-			String reason = entries.get(3).text();
-
-			List<String> nameList = Arrays.asList(names.split(" "));
-			List<String> ipList = Arrays.asList(ips.split(" "));
-			LocalDate bdate;
-
-
-
-			if(date.contains("/")) {
-				bdate = LocalDate.parse(date,formatter);
-			} else {
-				bdate = LocalDate.parse("12/31/2999",formatter);
-			}
-
-			banList.add(new BanInfo(nameList, ipList, reason, bdate));
+			Elements entries = row.getElementsByTag("td");
+			if (entries.size() > 3) {
+			  banList.add(new BanInfo(entries));
+      }
 		}
 	}
 
+  public static Collection<BanInfo> getBans() {
+	  Collection<BanInfo> bans = new HashSet<>(bansIn19);
+	  bans.addAll(bansIn17);
+	  return bans;
+  }
 
-
-	public static BanInfo getUserBan(String username, String hostmask, String channel){
+	@Nullable
+	public static BanInfo getUserBan(String username, String hostmask, String channel) {
 		LocalDate today = LocalDate.now();
-		if(channel.equalsIgnoreCase("#site17")){
-			for(BanInfo info : bansIn17){
-				if((info.getIPs().contains(hostmask) || info.getUserNames().contains(username)) && info.getBanEnd().isAfter(today)){
-					return info;
-				}
-			}
-		}else if(channel.equalsIgnoreCase("#site19") || channel.equalsIgnoreCase("#thecritters") ){
-			for(BanInfo info : bansIn19){
-				if((info.getIPs().contains(hostmask) || info.getUserNames().contains(username)) && info.getBanEnd().isAfter(today)){
-					return info;
-				}
-			}
-		}else{
-			return null;
+		final Collection<BanInfo> bans;
+		switch (channel.toLowerCase()) {
+			case "#site17":
+				bans = bansIn17;
+				break;
+
+			case "#site19":
+			case "#thecritters":
+				bans = bansIn19;
+				break;
+
+			default:
+				return null;
 		}
-
-
-		return null;
+		return bans
+        .stream()
+        .filter(info -> info.banEnd.isAfter(today) &&
+                        (info.IPs.contains(hostmask) || info.userNames.contains(username)))
+        .findAny().orElse(null);
 	}
 }

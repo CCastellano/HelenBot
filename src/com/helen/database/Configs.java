@@ -1,264 +1,281 @@
 package com.helen.database;
 
+import com.helen.*;
+import com.helen.commands.*;
+import com.helen.error.*;
+import org.apache.log4j.Logger;
+
+import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
-import org.apache.log4j.Logger;
+public final class Configs {
+  private static final Logger logger = Logger.getLogger(Configs.class);
 
-import com.helen.commands.CommandData;
+  private static final long MINUTES_TO_MILLIS = 60_000;
 
-public class Configs {
+  private static final Map<String, Config> environmentVars = new HashMap<>();
+  private  static final Map<String, List<Config>> environmentMultiVars = new HashMap<>();
+  private static final Map<String, List<Config>> cachedProperties = new HashMap<>();
+  private static boolean cacheValid = false;
 
-	private static final Logger logger = Logger.getLogger(Configs.class);
+  public static List<Config> getProperty(String key) {
+    String keyUp = key.toUpperCase();
+    List<Config> fromEnv = environmentMultiVars.computeIfAbsent(keyUp, k -> {
+      String value = Utils.envOption(k);
+      return value == null ? null : Arrays
+          .stream(Utils.split(',', value))
+          .map(v -> new Config(k, v, false))
+          .collect(Collectors.toList());
+    });
+    if (fromEnv != null) {
+      return fromEnv;
+    }
+    if (!cacheValid) {
+      loadProperties();
+    }
+    List<Config> configs = cachedProperties.get(keyUp.toUpperCase());
+    if (configs == null) {
+      logger.warn("Attempt to access unknown property: " + key);
+      return new ArrayList<>();
+    } else {
+      return configs;
+    }
+  }
 
-	private static HashMap<String, ArrayList<Config>> cachedProperties = new HashMap<String, ArrayList<Config>>();
-	private static Boolean cacheValid = false;
-	
-	public static ArrayList<Config> getProperty(String key) {
-		if (!cacheValid) {
-			loadProperties();
-		}
-		if (cachedProperties.containsKey(key)) {
-			return cachedProperties.get(key);
-		} else {
-			return null;
-		}
-	}
-	
-	public static void clear(){
-		cacheValid = false;
-		loadProperties();
-	}
+  public static void clear() {
+    cacheValid = false;
+    loadProperties();
+  }
 
-	public static Config getSingleProperty(String key) {
-		if (!cacheValid) {
-			loadProperties();
-		}
-		if (cachedProperties.containsKey(key)) {
-			return cachedProperties.get(key).get(0);
-		} else {
-			return null;
-		}
-	}
-	
-	public static java.sql.Timestamp getTimestamp(String key) {
-		if (!cacheValid) {
-			loadProperties();
-		}
-		if (cachedProperties.containsKey(key)) {
-			return java.sql.Timestamp.valueOf( cachedProperties.get(key).get(0).getValue());
-		} else {
-			return null;
-		}
-	}
+  public static Config getSingleProperty(String key) {
+    String keyUp = key.toUpperCase();
+    Config fromEnv = environmentVars.computeIfAbsent(keyUp, k -> {
+      String value = Utils.envOption(k);
+      return value == null ? null : new Config(k, value, false);
+    });
+    if (fromEnv != null) {
+      return fromEnv;
+    } else {
+      if (!cacheValid) {
+        loadProperties();
+      }
+      List<Config> props = cachedProperties.get(keyUp);
+      if (props == null || props.isEmpty()) {
+        throw new InvalidConfigurationException("Property '" + key + "' not found");
+      }
+      return props.get(0);
+    }
+  }
 
-	public static String setProperty(String key, String value, String publicFlag) {
-		try {
-			CloseableStatement stmt = Connector.getStatement(Queries.getQuery("propertySet"), key, value,
-					new java.sql.Date(System.currentTimeMillis()),
-					publicFlag.equals("t") ? true : false);
+  public static String setProperty(String key, String value, boolean publicFlag) {
+    try (
+        Connection conn = Connector.getConnection();
+        PreparedStatement stmt = Connector.prepare(conn, "propertySet",
+            "INSERT INTO properties (key, value, public) VALUES (?, ?, ?)",
+            key, value, publicFlag
+        )
+    ) {
+      if (stmt.executeUpdate() > 0) {
+        loadProperty(new Config(key, value, publicFlag));
+        return "Property " + key + " has been set to " + value;
+      }
+    } catch (SQLException e) {
+      logger.error("Exception attempting to set property", e);
+    }
+    return "There was an error during the update process. Please check the logs.";
+  }
 
-			if (stmt.executeUpdate()) {
-				cacheValid = false;
-				return "Property " + key + " has been set to " + value;
-			} else {
-				return "Failure to set new property, please check the logs.";
-			}
-			
-		} catch (SQLException e) {
-			logger.error("Exception attempting to set property", e);
-		}
+  public static String updateSingle(String key, String value, boolean publicFlag) {
+    try (
+        Connection conn = Connector.getConnection();
+        PreparedStatement stmt = Connector.prepare(conn, "updateCheck",
+            "SELECT COUNT(*) as counted FROM properties WHERE key = ?",
+            key
+        );
+        ResultSet rs = stmt.executeQuery()
+    ) {
+      if (!rs.next()) {
+        logger.error("Exception attempting to set property. The returned result set had no values.");
+      } else if (rs.getInt("counted") > 1) {
+        return "That property has multiple values. Please contact " +
+               Configs.getSingleProperty("contact") + " to have it modified.";
+      } else if (rs.getInt("counted") < 1) {
+        return "That property currently is not set. This operation doesn't support insertion.";
+      } else {
+        try (
+            PreparedStatement updateStatement = Connector.prepare(conn, "updatePush",
+                "UPDATE properties SET value = ?, public = ?, updated = current_timestamp " +
+                "WHERE key = ?",
+                value, publicFlag, key
+            )
+        ) {
+          if (updateStatement.executeUpdate() > 0) {
+            List<Config> singleton = new ArrayList<>();
+            singleton.add(new Config(key, value, publicFlag));
+            cachedProperties.put(key.toUpperCase(), singleton);
+            return "Updated " + key + " to value " + value;
+          } else {
+            return "I'm sorry, there was an error updating the key specified.";
+          }
+        }
+      }
+    } catch (SQLException e) {
+      logger.error("Exception attempting to set property.", e);
+    }
 
-		return "There was an error during the update process.  Please check the logs.";
-	}
+    return "There was an error during the update process. Please check the logs.";
+  }
 
-	public static String updateSingle(String key, String value,
-			String publicFlag) {
-		try {
-			CloseableStatement stmt = Connector.getStatement(Queries.getQuery("updateCheck"), key);
-			ResultSet rs = stmt.executeQuery();
-			if (rs != null && rs.next()) {
-				if (rs.getInt("counted") > 1) {
-					return "That property has multiple values.  Please contact Dr. Magnus to have it modified.";
-				} else if (rs.getInt("counted") < 1) {
-					return "That property currently is not set.  This operation doesn't support insertion.";
-				} else {
-					stmt.close();
-					CloseableStatement updateStatement = Connector
-							.getStatement(Queries.getQuery("updatePush"), value,
-									publicFlag.equals("t") ? true : false, key);
+  public static String removeProperty(String key, String value) {
+    Collection<Config> configs = cachedProperties.get(key.toUpperCase());
+    if (configs != null && configs.removeIf(c -> c.value.equalsIgnoreCase(value))) {
+      try (
+          Connection conn = Connector.getConnection();
+          PreparedStatement stmt = Connector.prepare(conn, "deleteConfig",
+              "DELETE FROM properties WHERE key = ? AND value = ?",
+              key, value
+          )
+      ) {
+        if (stmt.executeUpdate() > 0) {
+          return "Successfully removed " + key + " with the value " + value +
+                 " from the properties table.";
+        } else {
+          return "There was an error removing the specified key/value pair.";
+        }
+      } catch (SQLException e) {
+        logger.error("Exception deleting property.", e);
+      }
+    } else {
+      return "Sorry, this property is either not currently configured or not publically accessible.";
+    }
+    return "There was an unexpected error attempting to delete property.";
+  }
 
-					if (updateStatement.executeUpdate()) {
-						cacheValid = false;
-						return "Updated " + key + " to value " + value;
-					} else {
-						return "I'm sorry, there was an error updating the key specified.";
-					}
-				}
-			} else {
-				logger.error("Exception attempting to set property.  The returned result set had no values.");
-			}
+  private static void loadProperty(Config c) {
+    cachedProperties.computeIfAbsent(c.key.toUpperCase(), k -> new ArrayList<>()).add(c);
+  }
 
-			stmt.close();
-		} catch (SQLException e) {
-			logger.error("Exception attempting to set property", e);
+  private static void loadProperties() {
+    cachedProperties.clear();
+    try (
+        Connection conn = Connector.getConnection();
+        PreparedStatement stmt = Connector.prepare(conn, "kvQuery",
+            "SELECT * FROM properties"
+        );
+        ResultSet rs = stmt.executeQuery()
+    ) {
+      while (rs.next()) {
+        loadProperty(new Config(rs));
+      }
+      cacheValid = true;
+    } catch (SQLException e) {
+      logger.error("Exception attempting to retrieve properties list", e);
+    }
+  }
 
-		}
+  public static Stream<Config> getConfiguredProperties(boolean showPublic) {
+    if (!cacheValid) {
+      loadProperties();
+    }
+    return Stream.concat(
+        environmentVars.values().stream(),
+        Stream.concat(
+            environmentMultiVars.values().stream(),
+            cachedProperties.values().stream()
+        ).flatMap(Collection::stream)
+    ) .filter(value -> !showPublic || value.isPublic);
+  }
 
-		return "There was an error during the update process.  Please check the logs.";
-	}
 
-	public static String removeProperty(String key, String value) {
-		boolean okayToDelete = false;
-		if (cachedProperties.containsKey(key)) {
-			ArrayList<Config> configs = cachedProperties.get(key);
-			for (Config c : configs) {
-				if (c.getValue().equals(value)) {
-					okayToDelete = c.isPublic();
-				}
-			}
-		}
-		if (okayToDelete) {
-			try {
-				CloseableStatement stmt = Connector.getStatement(Queries.getQuery("deleteConfig"),
-						key, value);
-				if (stmt.executeUpdate()) {
-					cacheValid = false;
-					return "Successfully removed " + key + " with the value "
-							+ value + " from the properties table.";
-				} else {
-					return "There was an error removing the specified key/value pair.";
-				}
+  public static boolean commandEnabled(CommandData data, String command) {
+    if (data.channel == null) {
+      return true;
+    } else {
+      try (
+          Connection conn = Connector.getConnection();
+          PreparedStatement stmt = Connector.prepare(conn, "commandEnabled",
+              "SELECT enabled FROM channeltoggles WHERE channel = ? AND command = ?",
+              data.channel.toLowerCase(), command
+          );
+          ResultSet rs = stmt.executeQuery()
+      ) {
+        return rs.next() && rs.getBoolean("enabled");
+      } catch (SQLException e) {
+        logger.error("Couldn't get toggle", e);
+        return false;
+      }
+    }
+  }
 
-			} catch (Exception e) {
-				logger.error("Exception deleting property.", e);
-			}
-		} else {
-			return "Apologies, this property is either not currently configured, or is not publically accessible.";
-		}
+  public static String insertToggle(CommandData data, String command, boolean enabled) {
+    if (data.channel == null) {
+      return Command.CHANNEL_ONLY;
+    } else {
+      try (
+          Connection conn = Connector.getConnection();
+          PreparedStatement stmt = Connector.prepare(conn, "insertToggle",
+              "INSERT INTO channeltoggles (channel, command, enabled) VALUES (?, ?, ?) " +
+              "ON CONFLICT (channel, command) DO UPDATE SET enabled = excluded.enabled",
+              data.channel.toLowerCase(), command.toLowerCase(), enabled
+          )
+      ) {
+        stmt.executeUpdate();
+      } catch (SQLException e) {
+        if (e.getMessage().contains("channel_unique")) {
+          return updateToggle(data, command, enabled);
+        } else {
+          logger.error("Error inserting a toggle", e);
+        }
+      }
+      return "Set " + command + " to " + enabled + " for " + data.channel;
+    }
+  }
 
-		return "There was an unexpected error attempting to delete property.";
+  public static String updateToggle(CommandData data, String command, boolean enabled) {
+    if (data.channel == null) {
+      return Command.CHANNEL_ONLY;
+    } else {
+      try (
+          Connection conn = Connector.getConnection();
+          PreparedStatement stmt = Connector.prepare(conn, "updateToggle",
+              "UPDATE channeltoggles SET enabled = ? WHERE channel = ? AND command = ?",
+              enabled, data.channel.toLowerCase(), command.toLowerCase()
+          )
+      ) {
+        stmt.executeUpdate();
+      } catch (SQLException e) {
+        logger.error("Couldn't get toggle", e);
+        return "There was an error attempting to update toggle";
+      }
+      return "Updated " + data.getCommand() + " to " + enabled + " for " + data.channel;
+    }
+  }
 
-	}
-
-	private static void loadProperties() {
-			cachedProperties = new HashMap<String, ArrayList<Config>>();
-			try {
-				CloseableStatement stmt = Connector.getStatement(Queries.getQuery("kvQuery"));
-				ResultSet rs = stmt.executeQuery();
-				while (rs != null && rs.next()) {
-					if (!cachedProperties.containsKey(rs.getString("key"))) {
-						cachedProperties.put(rs.getString("key"),
-								new ArrayList<Config>());
-					}
-					cachedProperties.get(rs.getString("key")).add(
-							new Config(rs.getString("key"), rs
-									.getString("value"), rs
-									.getString("updated"), rs
-									.getBoolean("public")));
-				}
-				cacheValid = true;
-				stmt.close();
-			} catch (SQLException e) {
-				logger.error(
-						"Exception attempting to retreive properties list", e);
-			}
-		
-	}
-
-	public static ArrayList<Config> getConfiguredProperties(boolean showPublic) {
-		ArrayList<Config> keyValues = new ArrayList<Config>();
-		if (!cacheValid) {
-			loadProperties();
-		} 
-
-			for (String key : cachedProperties.keySet()) {
-				for (Config value : cachedProperties.get(key)) {
-					if (showPublic) {
-						if (value.isPublic()) {
-							keyValues.add(value);
-						}
-					} else {
-						keyValues.add(value);
-					}
-				}
-			}
-
-			return keyValues;
-	}
-
-	public static ArrayList<String> getPropertyTypes() {
-		if(!cacheValid){
-			loadProperties();
-		}
-		ArrayList<String> keyValues = new ArrayList<String>();
-		try {
-			CloseableStatement stmt = Connector.getStatement(Queries.getQuery("keysQuery"));
-
-			ResultSet rs = stmt.executeQuery();
-			while (rs != null && rs.next()) {
-				keyValues.add(rs.getString("key"));
-			}
-			stmt.close();
-		} catch (SQLException e) {
-			logger.error("Exception attempting to retreive properties list", e);
-		} 
-
-		return keyValues;
-
-	}
-	
-	public static boolean commandEnabled(CommandData data, String command){
-		boolean result = false;
-		try{
-			CloseableStatement stmt = Connector.getStatement(Queries.getQuery("commandEnabled"),
-					data.getChannel().toLowerCase(),
-					command);
-			ResultSet rs = stmt.getResultSet();
-			if(rs != null && rs.next()){
-				result = rs.getBoolean("enabled");
-			}
-			rs.close();
-			stmt.close();
-		}catch(Exception e){
-			logger.error("Couldn't get toggle",e);
-			result = false;
-		}
-		return result;
-		
-	}
-	
-	public static String insertToggle(CommandData data, String command, boolean enabled){
-		try{
-			CloseableStatement stmt = Connector.getStatement(Queries.getQuery("insertToggle"),
-					data.getChannel().toLowerCase(),
-					command.toLowerCase(),
-					enabled);
-			stmt.executeUpdate();
-		}catch(Exception e){
-			if(e.getMessage().contains("channel_unique")){
-				return updateToggle(data, command, enabled);
-			}
-		}
-		return "Set " + command + " to " + enabled + " for " + data.getChannel();
-		
-	}
-	
-	public static String updateToggle(CommandData data,String command, boolean enabled){
-		try{
-			CloseableStatement stmt = Connector.getStatement(Queries.getQuery("updateToggle"),
-					enabled,
-					data.getChannel().toLowerCase(),
-					command.toLowerCase());
-			stmt.executeUpdate();
-		}catch(Exception e){
-			logger.error("Couldn't get toggle",e);
-			return "There was an error attempting to update toggle";
-		}
-		return "Updated " + data.getCommand() + " to " + enabled + " for " + data.getChannel();
-		
-	}
-
+  public static long getTimer(String key) {
+    try (
+        Connection conn = Connector.getConnection();
+        PreparedStatement stmt = Connector.prepare(conn, "getTimeout",
+            "SELECT minutes FROM timers WHERE name = ?",
+            key
+        );
+        ResultSet rs = stmt.executeQuery()
+    ) {
+      if (rs.next()) {
+        return MINUTES_TO_MILLIS * rs.getInt("minutes");
+      }
+    } catch (SQLException e) {
+      logger.error("Error getting timeout property", e);
+    }
+    throw new InvalidConfigurationException("Timer '" + key + "' not found");
+  }
 }

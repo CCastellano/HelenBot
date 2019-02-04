@@ -1,107 +1,78 @@
 package com.helen.commands;
 
-import com.helen.database.Config;
-import com.helen.database.Configs;
+import com.helen.*;
+import com.helen.database.*;
+
+import javax.annotation.Nullable;
 
 public class CommandData {
-	private String channel;
-	private String sender;
-	private String login;
-	private String hostname;
-	private String message;
-	private String regexTarget;
+  @Nullable public final String channel;
+  public final String sender;
+  public final String login;
+  public final String hostname;
+  public final String message;
+  public final String[] splitMessage;
+  @Nullable public String regexTarget;
 
-	
-	public CommandData(String channel, String sender, String login, String hostname, String message) {
-		this.channel = channel;
-		this.sender = sender;
-		this.login = login;
-		this.hostname = hostname;
-		this.message = message;
-	}
-	
-	
+  public CommandData(@Nullable String channel, String sender, String login, String hostname, String message) {
+    this.channel      = channel;
+    this.sender       = sender;
+    this.login        = login;
+    this.hostname     = hostname;
+    this.message      = message.trim();
+    this.splitMessage = Utils.split(' ', this.message);
+  }
 
-	public boolean isPrivate(){
-		return getChannel() == null || getChannel().isEmpty();
-	}
-	
-	public String getRegexTarget(){
-		return regexTarget;
-	}
-	
-	public void setRegexTarget(String str){
-		regexTarget = str;
-	}
-	
-	public String getResponseTarget(){
-		return (isPrivate()) ? getSender() : getChannel();
-	}
+  @Nullable
+  private String subMsg(int beginIndex) {
+    return beginIndex < message.length() ? message.substring(beginIndex).trim() : null;
+  }
 
-	public String getChannel() {
-		return channel;
-	}
-	
-	public String[] getSplitMessage(){
-		return getMessage().split(" ");
-	}
+  public String getResponseTarget() {
+    return channel == null ? sender : channel;
+  }
 
+  @Nullable
+  public String getCommand() {
+    return splitMessage.length > 0 ? splitMessage[0] : null;
+  }
 
-	public String getSender() {
-		return sender;
-	}
+  @Nullable
+  public String getTarget() {
+    return splitMessage.length > 1 ? splitMessage[1] : null;
+  }
 
+  @Nullable
+  public String getMessageWithoutCommand() {
+    return splitMessage.length > 1 ? subMsg(splitMessage[0].length() + 1) : null;
+  }
 
-	public String getLogin() {
-		return login;
-	}
+  @Nullable
+  public String getTellMessage() {
+    return splitMessage.length > 2
+           ? subMsg(splitMessage[0].length() + splitMessage[1].length() + 2)
+           : null;
+  }
 
+  @Nullable
+  public String getPayload() {
+    return splitMessage.length > 2
+           ? subMsg(message.indexOf(splitMessage[1]) + splitMessage[1].length())
+           : null;
+  }
 
-	public String getHostname() {
-		return hostname;
-	}
+  public boolean isWhiteList() {
+    return Configs
+        .getProperty("registeredNicks")
+        .stream()
+        .anyMatch(config -> sender.equalsIgnoreCase(config.value));
+  }
 
+  public boolean isHugList() {
+    return Configs
+        .getProperty("hugs")
+        .stream()
+        .anyMatch(config -> sender.equalsIgnoreCase(config.value));
+  }
 
-	public String getMessage() {
-		return message;
-	}
-	
-	public String getCommand() {
-		return message.split(" ")[0];
-	}
-	
-	public String getTarget() {
-		return message.split(" ")[1];
-	}
-	
-	public String getMessageWithoutCommand() {
-		return message.substring((message.split(" ")[0].length() + 1),message.length());
-	}
-	
-	public String getTellMessage() {
-		return message.substring((message.split(" ")[0].length() + message.split(" ")[1].length() + 2),message.length());
-	}
-	
-	public String getPayload() {
-		return message.substring(message.indexOf(getTarget()) + getTarget().length()).trim();
-	}
-	
-	public boolean isWhiteList(){
-		for(Config config : Configs.getProperty("registeredNicks")){
-			if(getSender().equals(config.getValue())){
-				return true;
-			}
-		}
-		return false;
-	}
-	
-	public boolean isHugList(){
-		for(Config config : Configs.getProperty("hugs")){
-			if(getSender().equalsIgnoreCase(config.getValue())){
-				return true;
-			}
-		}
-		return false;
-	}
-	
 }

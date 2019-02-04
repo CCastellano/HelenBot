@@ -1,62 +1,44 @@
 package com.helen.database;
 
-import com.helen.commands.CommandData;
+import com.helen.commands.*;
 import org.apache.log4j.Logger;
 
+import javax.annotation.Nullable;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
-import java.util.List;
+import java.sql.SQLException;
 
 public class UserNick {
-    Logger logger = Logger.getLogger(UserNick.class);
+  private static final Logger logger = Logger.getLogger(UserNick.class);
 
-    private int groupId;
-    private String nickToGroup;
-    private boolean newNick = false;
+  public final int groupId;
+  public final boolean isNewNick;
+  @Nullable public final String nickToGroup;
 
+  public UserNick(CommandData data) throws SQLException {
+    int id = Nicks.getNickGroup(data.sender);
+    if (id != -1) {
+      String target = data.getTarget();
+      this.groupId     = id;
+      this.isNewNick   = true;
+      this.nickToGroup = target != null && !Nicks.getNicksByGroup(id).contains(target)
+                         ? target
+                         : null;
+    } else {
+      this.isNewNick = true;
+      try (
+          Connection conn = Connector.getConnection();
+          PreparedStatement stmt = Connector.prepare(conn, "create_nick_group",
+              "INSERT INTO nick_groups (id) VALUES (default) RETURNING id"
+          );
+          ResultSet newId = stmt.executeQuery()
+      ) {
+        this.groupId = newId.next() ? newId.getInt("id") : -1;
+        this.nickToGroup = data.getTarget();
 
-    public UserNick(CommandData data) {
-        try {
-
-            Integer id = Nicks.getNickGroup(data.getSender());
-
-            if(id != null && id != -1){
-                this.groupId = id;
-                List<String> nicks = Nicks.getNicksByGroup(id);
-                if(!nicks.contains(data.getTarget())) {
-                    this.nickToGroup = data.getTarget();
-                }else{
-                    this.nickToGroup = null;
-                }
-            }else {
-                CloseableStatement newStmt = Connector.getStatement(Queries
-                        .getQuery("create_nick_group"));
-                ResultSet newId = newStmt.execute();
-                if (newId != null && newId.next()) {
-                    this.groupId = newId.getInt("id");
-                } else {
-                    this.groupId = -1;
-                }
-                newId.close();
-                newStmt.close();
-                newNick = true;
-                this.nickToGroup = data.getTarget();
-
-            }
-        } catch (Exception e) {
-            logger.error("Exception instantiating usernick",e);
-        }
-        logger.info("groupid " + groupId + ". NickToGroup: " + nickToGroup);
+      }
     }
-
-    public int getGroupId() {
-        return groupId;
-    }
-
-    public String getNickToGroup() {
-        return nickToGroup;
-    }
-
-    public boolean isNewNick() {
-        return newNick;
-    }
+    logger.info("groupid " + groupId + ". NickToGroup: " + nickToGroup);
+  }
 }

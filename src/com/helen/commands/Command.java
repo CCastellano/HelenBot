@@ -1,702 +1,667 @@
 package com.helen.commands;
 
-import com.helen.bots.HelenBot;
+import com.helen.*;
+import com.helen.bots.*;
 import com.helen.database.*;
+import com.helen.database.selectable.*;
+import com.helen.error.*;
 import com.helen.search.*;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.cli.ParseException;
 import org.apache.log4j.Logger;
+import org.apache.xmlrpc.XmlRpcException;
 import org.jibble.pircbot.User;
 
+import javax.annotation.Nullable;
+import javax.xml.parsers.ParserConfigurationException;
 import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.util.ArrayList;
+import java.sql.SQLException;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashMap;
-import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
+@SuppressWarnings("unused")
 public class Command {
-	private static final Logger logger = Logger.getLogger(Command.class);
-	public static final String NOT_FOUND = "I'm sorry, I couldn't find anything.";
-	public static final String ERROR = "I'm sorry, there was an error. Please inform DrMagnus.";
+  private static final Logger logger = Logger.getLogger(Command.class);
 
-	private HelenBot helen;
+  public static final String CHANNEL_ONLY = "I can only do that in a channel.";
+  public static final String MORE_ARGS = "That command requires more arguments.";
+  public static final String NOT_FOUND = "I'm sorry, I couldn't find anything.";
 
-	private boolean adminMode = false;
-	private final int adminSecurity = 2;
-	private int bullets = 6;
+  private static final int ADMIN_SECURITY = 2;
 
-	private static HashMap<String, Method> hashableCommandList = new HashMap<String, Method>();
-	private static HashMap<String, Method> slowCommands = new HashMap<String, Method>();
-	private static HashMap<String, Method> regexCommands = new HashMap<String, Method>();
-
-	public Command() {
-
-	}
-
-	public Command(HelenBot ircBot) {
-		helen = ircBot;
-	}
-
-	static {
-		logger.info("Initializing commandList.");
-		for (Method m : Command.class.getDeclaredMethods()) {
-			if (m.isAnnotationPresent(IRCCommand.class)) {
-				if (m.getAnnotation(IRCCommand.class).startOfLine() && !m.getAnnotation(IRCCommand.class).reg()) {
-					for (String s : ((IRCCommand) m.getAnnotation(IRCCommand.class)).command()) {
-						hashableCommandList.put(s.toLowerCase(), m);
-					}
-				} else if (!m.getAnnotation(IRCCommand.class).reg()) {
-					for (String s : ((IRCCommand) m.getAnnotation(IRCCommand.class)).command()) {
-						slowCommands.put(s.toLowerCase(), m);
-					}
-				} else {
-					for (String s : ((IRCCommand) m.getAnnotation(IRCCommand.class)).regex()) {
-						regexCommands.put(s, m);
-					}
-				}
-				for(String s: ((IRCCommand) m.getAnnotation(IRCCommand.class)).command()){
-					logger.info("Loaded command: " + m + " with activation string " + s);
-				}
-			}
-		}
-		logger.info("Finished Initializing commandList.");
-	}
-
-	private void checkTells(CommandData data) {
-		ArrayList<Tell> tells = Tells.getTells(data.getSender());
-
-		if (tells.size() > 0) {
-			helen.sendNotice(data.getSender(), "You have " + tells.size() + " pending tell(s).");
-		}
-		for (Tell tell : tells) {
-			Tells.clearTells(tell.getNickGroupId() != null ? tell.getNickGroupId().toString() : tell.getTarget());
-			helen.sendMessage(tell.getTarget(), tell.toString());
-
-		}
-	}
-
-	private Integer getSecurityLevel(User[] userlist, CommandData data) {
-		if (data.isWhiteList()) {
-			return 4;
-		} else if (userlist != null) {
-
-			User user = null;
-			for (User u : userlist) {
-				if (data.getSender().equalsIgnoreCase(u.getNick())) {
-					user = u;
-				}
-			}
-
-			if (user != null) {
-				if(user.isOp()){
-					return 3;
-				}
-				switch (user.getPrefix()) {
-				case "~":
-				case "&":
-					return 3;
-				case "%":
-					return 2;
-				case "":
-					return 1;
-				}
-			}
-		}
-
-		return 1;
-
-	}
-
-	private User[] getUserlist(CommandData data) {
-		User[] list = null;
-		if (!(data.getChannel() == null || data.getChannel().isEmpty())) {
-			list = helen.getUsers(data.getChannel());
-		}
-		return list;
-	}
-
-
-
-	public void dispatchTable(CommandData data) {
-
-		checkTells(data);
-		User[] userList = getUserlist(data);
-		Integer securityLevel = getSecurityLevel(userList, data);
-		//logger.info("Entering dispatch table with command: \"" + data.getCommand() + "\"");
-
-		// If we can use hashcommands, do so
-		if (hashableCommandList.containsKey(data.getCommand().toLowerCase())) {
-			try {
-
-				Method m = hashableCommandList.get(data.getCommand().toLowerCase());
-				if (m.getAnnotation(IRCCommand.class).coexistWithJarvis() || !helen.jarvisIsPresent(data.getChannel().toLowerCase())) {
-					if (securityLevel >= (adminMode
-							? Math.max(m.getAnnotation(IRCCommand.class).securityLevel(), adminSecurity)
-							: m.getAnnotation(IRCCommand.class).securityLevel())) {
-						m.invoke(this, data);
-					} else {
-						logger.info("User " + data.getSender() + " attempted to use command: "
-								+ data.getCommand() + " which is above their security level of: "
-								+ securityLevel + (adminMode ? ".  I am currently in admin mode." : "."));
-					}
-				}
-
-			} catch (Exception e) {
-				logger.error("Exception invoking start-of-line command: " + data.getCommand(), e);
-			}
-			// otherwise, run the command string against all the contains
-			// commands
-		} else {
-			for (String command : slowCommands.keySet()) {
-				if (data.getMessage().toLowerCase().contains(command.toLowerCase())) {
-					try {
-						Method m = slowCommands.get(command);
-						if (m.getAnnotation(IRCCommand.class).coexistWithJarvis() || !helen.jarvisIsPresent(data.getChannel())) {
-							if (securityLevel >= (adminMode
-									? Math.max(m.getAnnotation(IRCCommand.class).securityLevel(), adminSecurity)
-									: m.getAnnotation(IRCCommand.class).securityLevel())) {
-								m.invoke(this, data);
-							} else {
-								logger.info("User " + data.getSender() + " attempted to use command: "
-										+ data.getCommand() + " which is above their security level of: "
-										+ securityLevel + (adminMode ? ".  I am currently in admin mode." : "."));
-							}
-						}
-					} catch (Exception e) {
-						logger.error("Exception invoking command: " + command, e);
-					}
-				}
-			}
-
-			// lastly check the string against any regex commands
-			for (String regex : regexCommands.keySet()) {
-				Pattern r = Pattern.compile(regex, Pattern.CASE_INSENSITIVE);
-
-					Matcher match = r.matcher(data.getSplitMessage()[0]);
-					if (match.matches()) {
-						try {
-							Method m = regexCommands.get(regex);
-
-							if(m.getAnnotation(IRCCommand.class).matcherGroup() != -1){
-								data.setRegexTarget(match.group(m.getAnnotation(IRCCommand.class).matcherGroup()));
-							}
-							if (m.getAnnotation(IRCCommand.class).coexistWithJarvis() || !helen.jarvisIsPresent(data.getChannel())) {
-								if (securityLevel >= (adminMode
-										? Math.max(m.getAnnotation(IRCCommand.class).securityLevel(), adminSecurity)
-										: m.getAnnotation(IRCCommand.class).securityLevel())) {
-									m.invoke(this, data);
-								} else {
-									logger.info("User " + data.getSender() + " attempted to use command: "
-											+ data.getCommand() + " which is above their security level of: "
-											+ securityLevel + (adminMode ? ".  I am currently in admin mode." : "."));
-
-								}
-							}
-						} catch (Exception e) {
-							logger.error("Exception invoking command: "
-									+ regexCommands.get(regex).getAnnotation(IRCCommand.class).command(), e);
-						}
-					}
-
-			}
-		}
-	}
-
-	// Relatively unregulated commands (anyone can try these)
-	@IRCCommand(command = { ".HelenBot" }, startOfLine = true, coexistWithJarvis = true, securityLevel = 1)
-	public void versionResponse(CommandData data) {
-		if (data.getChannel().isEmpty()) {
-			helen.sendMessage(data.getResponseTarget(), data.getSender() + ": Greetings, I am HelenBot v"
-					+ Configs.getSingleProperty("version").getValue());
-		}
-		helen.sendMessage(data.getResponseTarget(),
-				data.getSender() + ": Greetings, I am HelenBot v" + Configs.getSingleProperty("version").getValue());
-	}
-
-	@IRCCommand(command = { ".modeToggle" }, startOfLine = true, coexistWithJarvis = true, securityLevel = 3)
-	public void toggleMode(CommandData data) {
-		adminMode = !adminMode;
-		helen.sendMessage(data.getResponseTarget(), data.getSender() + ": " + " I am now in " + (adminMode ? "Admin Only" : "Any User") + " mode.");
-	}
-
-	@IRCCommand(command = { ".checkJarvis" }, startOfLine = true, coexistWithJarvis = true, securityLevel = 2)
-	public void findJarvisInChannel(CommandData data) {
-		helen.jarvisReset(data.getChannel());
-		helen.sendWho(data.getChannel());
-		helen.sendMessage(data.getResponseTarget(), data.getSender() + ": Checking channel members...");
-	}
-
-	@IRCCommand(command = { ".jarvistest" }, startOfLine = true, coexistWithJarvis = true, securityLevel = 4)
-	public void listTest(CommandData data) {
-		helen.sendMessage(data.getResponseTarget(), data.getSender() + ": " + helen.jarvisIsPresent(data.getTarget()));
-	}
-
-	@IRCCommand(command = { ".ch", ".choose" }, startOfLine = true, securityLevel = 1)
-	public void choose(CommandData data) {
-		String[] choices = data.getMessage().substring(data.getMessage().indexOf(" ")).split(",");
-		helen.sendMessage(data.getResponseTarget(),
-				data.getSender() + ": " + choices[new Random().nextInt(choices.length)]);
-	}
-
-	@IRCCommand(command = { ".mode" }, startOfLine = true, coexistWithJarvis = true, securityLevel = 2)
-	public void displayMode(CommandData data) {
-		helen.sendMessage(data.getResponseTarget(),
-				data.getSender() + ": I am currently in " + (adminMode ? "Admin" : "Any User") + " mode.");
-	}
-
-	@IRCCommand(command = { ".msg" }, startOfLine = true, securityLevel = 1)
-	public void sendMessage(CommandData data) {
-		String target = data.getTarget();
-		String payload = data.getPayload();
-		helen.sendMessage(target, data.getSender() + " said:" + payload);
-	}
-
-	@IRCCommand(command = {".addNick"}, startOfLine = true, coexistWithJarvis = true, securityLevel = 1)
-	public void addNick(CommandData data){
-		helen.sendMessage(data.getResponseTarget(), data.getSender() + ": " + Nicks.addNick(data));
-	}
-
-	@IRCCommand(command = {".deleteNick"}, startOfLine = true, coexistWithJarvis = true, securityLevel = 1)
-	public void deleteNick(CommandData data){
-		helen.sendMessage(data.getResponseTarget(), data.getSender() + ": " + Nicks.deleteNick(data));
-	}
-
-	@IRCCommand(command = {".deleteAllNicks"}, startOfLine = true, coexistWithJarvis = true, securityLevel = 1)
-	public void deleteAllNicks(CommandData data){
-		helen.sendMessage(data.getResponseTarget(), data.getSender() + ": " + Nicks.deleteAllNicks(data, true));
-	}
-
-	@IRCCommand(command = {".deleteNicksAdmin"}, startOfLine = true, coexistWithJarvis = true, securityLevel = 4)
-	public void deleteNicksAdmin(CommandData data){
-
-		helen.sendMessage(data.getResponseTarget(), data.getSender() + ": " + Nicks.deleteAllNicks(data, false));
-	}
-
-	@IRCCommand(command = { "rollTest" }, startOfLine = true, securityLevel = 1, reg = true,
-			regex = {"([0-9]+)(d|f)([0-9]+)([+|-]?[0-9]+)?(\\s-e|-s)?\\s?(-e|-s)?\\s?(.+)?"})
-	public void regexRoll(CommandData data) {
-		Roll roll = new Roll(".roll " + data.getMessage(),
-				data.getSender(),
-				"([0-9]+)(d|f)([0-9]+)([+|-]?[0-9]+)?(\\s-e|-s)?\\s?(-e|-s)?\\s?(.+)?");
-		Rolls.insertRoll(roll);
-		helen.sendMessage(data.getResponseTarget(), data.getSender() + ": " + roll.toString());
-	}
-	@IRCCommand(command = { ".roll" }, startOfLine = true, securityLevel = 1)
-	public void roll(CommandData data) {
-		Roll roll = new Roll(data.getMessage(), data.getSender());
-		Rolls.insertRoll(roll);
-		helen.sendMessage(data.getResponseTarget(), data.getSender() + ": " + roll.toString());
-	}
-
-	@IRCCommand(command = { ".myRolls", ".myrolls" }, startOfLine = true, securityLevel = 1)
-	public void getRolls(CommandData data) {
-		ArrayList<Roll> rolls = Rolls.getRolls(data.getSender());
-		if (rolls.size() > 0) {
-			helen.sendMessage(data.getResponseTarget(), buildResponse(rolls));
-		} else {
-			helen.sendMessage(data.getResponseTarget(),
-					data.getSender() + ": *Checks her clipboard* Apologies, I do not have any saved rolls for you at this time.");
-		}
-
-	}
-
-	@IRCCommand(command = {".hugme"}, startOfLine = true, coexistWithJarvis = true, securityLevel = 1)
-	public void hugMe(CommandData data){
-		if(data.isHugList()){
-			helen.sendMessage(data.getResponseTarget(), data.getSender() + ": " + Hugs.storeHugmessage(data));
-		}else{
-			helen.sendMessage(data.getResponseTarget(), data.getSender() + ": You're not authorized to do that.");
-		}
-	}
-
-	@IRCCommand(command={".hugHelen",".helenhug",".hugsplox"}, startOfLine = true, coexistWithJarvis = true, securityLevel = 1)
-	public void hug(CommandData data){
-		if(data.isHugList()){
-			helen.sendMessage(data.getResponseTarget(), data.getSender() + ": " + Hugs.getHugMessage(data.getSender().toLowerCase()));
-		}else if(data.isWhiteList()){
-			helen.sendAction(data.getResponseTarget(), "hugs " + data.getSender() +".");
-		}else{
-			String[] messages = new String[]{
-					"Thank you for the display of affection.",
-					"*Click* Please remove your hands from my cylinders.",
-					"Hugging a revolver must be difficult.",
-					"You're smudging my finish.",
-					"*Sigh* And I just calibrated my sights...",
-					"I'm not sure why you're hugging me but...thank...you?",
-					"Yes...Human emotion.  This is...nice.  Please let go of me."};
-
-			helen.sendMessage(data.getResponseTarget(), data.getSender() + ": " + messages[((int) (Math.random() * (messages.length - 1)))]);
-		}
-	}
-
-	@IRCCommand(command = { ".average", ".avg" }, startOfLine = true, securityLevel = 1)
-	public void getAverage(CommandData data) {
-		String average = Rolls.getAverage(data.getSplitMessage()[1], data.getSender());
-		if (average != null) {
-			helen.sendMessage(data.getResponseTarget(), data.getSender() + ": " + average);
-		}
-
-	}
-
-	@IRCCommand(command = { ".g", ".google" }, startOfLine = true, securityLevel = 1)
-	public void webSearch(CommandData data) {
-		try {
-			GoogleResults results = WebSearch.search(data.getMessage());
-			helen.sendMessage(data.getResponseTarget(),
-					data.getSender() + ": " + (results == null ? NOT_FOUND : results)
-			);
-		} catch (IOException e) {
-			logger.error("Exception during web search", e);
-		}
-	}
-
-	@IRCCommand(command = { ".gis" }, startOfLine = true, securityLevel = 1)
-	public void imageSearch(CommandData data) {
-		try {
-			GoogleResults results = WebSearch.imageSearch(data.getMessage());
-			helen.sendMessage(data.getResponseTarget(),
-					data.getSender() + ": " + (results == null ? NOT_FOUND : results)
-			);
-		} catch (IOException e) {
-			logger.error("Exception during image search", e);
-		}
-	}
-
-	@IRCCommand(command = { ".w", ".wiki", ".wikipedia" }, startOfLine = true, securityLevel = 1)
-	public void wikipediaSearch(CommandData data) {
-		try {
-			helen.sendMessage(data.getResponseTarget(),
-					data.getSender() + ": " + WikipediaSearch.search(data, data.getMessage()));
-		} catch (IOException e) {
-			logger.error("Exception during Wikipedia search", e);
-		}
-	}
-
-	@IRCCommand(command = { ".y", ".yt", ".youtube" }, startOfLine = true, securityLevel = 1)
-	public void youtubeSearch(CommandData data) {
-		helen.sendMessage(data.getResponseTarget(),
-				data.getSender() + ": " + YouTubeSearch.youtubeSearch(data.getMessage()).toString());
-
-	}
-
-	@IRCCommand(command = {".helen",".helenHelp"}, startOfLine = true, securityLevel = 1, coexistWithJarvis = true)
-	public void helenHelp(CommandData data){
-		help(data);
-	}
-
-	@IRCCommand(command = ".help", startOfLine = true, securityLevel = 1)
-	public void help(CommandData data){
-		helen.sendMessage(data.getResponseTarget(), data.getSender() + ": You can find a list of my job responsibilities here:  http://home.helenbot.com/usage.html");
-	}
-
-	@IRCCommand(command = ".seen", startOfLine = true, securityLevel = 1)
-	public void seen(CommandData data) {
-		helen.sendMessage(data.getResponseTarget(), Users.seen(data));
-	}
-
-	@IRCCommand(command = ".sm", startOfLine = true, securityLevel = 1)
-	public void selectResult(CommandData data){
-		helen.sendMessage(data.getResponseTarget(), data.getSender() + ": " + Pages.getStoredInfo(data.getTarget(), data.getSender()));
-	}
-
-	@IRCCommand(command = {".lc",".l"}, startOfLine = true, securityLevel = 1)
-	public void lastCreated(CommandData data){
-		ArrayList<String> pages = Pages.lastCreated();
-		ArrayList<String> infoz = new ArrayList<String>();
-		if (pages != null) {
-			for (String str : pages) {
-				infoz.add(Pages.getPageInfo(str,data));
-			}
-			for(String str: infoz){
-				helen.sendMessage(data.getResponseTarget(), data.getSender()
-						+ ": " + str);
-			}
-
-		}else{
-			helen.sendMessage(data.getResponseTarget(), data.getSender() + ": I can't do that yet.");
-		}
-	}
-
-    @IRCCommand(command = {".hlc", ".hl"}, coexistWithJarvis = true, startOfLine = true, securityLevel = 1)
-    public void lastCreatedHelen(CommandData data) {
-        ArrayList<String> pages = Pages.lastCreated();
-        ArrayList<String> infoz = new ArrayList<String>();
-        if (pages != null) {
-            for (String str : pages) {
-                infoz.add(Pages.getPageInfo(str, data));
-            }
-            for (String str : infoz) {
-                helen.sendMessage(data.getResponseTarget(), data.getSender()
-                        + ": " + str);
-            }
-
+  private static final Map<String, Method> hashableCommandList = new HashMap<>();
+  private static final Map<String, Method> slowCommands = new HashMap<>();
+  private static final Map<String, Method> regexCommands = new HashMap<>();
+  static {
+    logger.info("Initializing commandList.");
+    for (Method m : Command.class.getDeclaredMethods()) {
+      if (m.isAnnotationPresent(IRCCommand.class)) {
+        IRCCommand cmd = m.getAnnotation(IRCCommand.class);
+        if (cmd.startOfLine() && !cmd.reg()) {
+          for (String s : cmd.command()) {
+            hashableCommandList.put(s.toLowerCase(), m);
+          }
+        } else if (!cmd.reg()) {
+          for (String s : cmd.command()) {
+            slowCommands.put(s.toLowerCase(), m);
+          }
         } else {
-            helen.sendMessage(data.getResponseTarget(), data.getSender() + ": I can't do that yet.");
+          for (String s : cmd.regex()) {
+            regexCommands.put(s, m);
+          }
         }
-    }
-
-	@IRCCommand(command = ".au", startOfLine = true, securityLevel = 1)
-	public void authorDetail(CommandData data){
-		helen.sendMessage(data.getResponseTarget(), data.getSender() + ": " + Pages.getAuthorDetail(
-				data, data.getSplitMessage().length == 1 ? data.getSender() :  data.getMessageWithoutCommand()));
-	}
-
-	@IRCCommand(command = "SCPPAGEREGEX", startOfLine= true, reg = true, regex = { "http:\\/\\/www.scp-wiki.net\\/(.*)" }, securityLevel = 1, matcherGroup = 1)
-	public void getPageInfo(CommandData data){
-		if(!data.getRegexTarget().contains("/") && !data.getRegexTarget().contains("forum")){
-			helen.sendMessage(data.getResponseTarget(), data.getSender() + ": " + Pages.getPageInfo(data.getRegexTarget()));
-		}
-	}
-
-	@IRCCommand(command = "SCP", startOfLine = true, reg = true, regex = { "(scp|SCP)-([0-9]+)(-(ex|EX|j|J|arc|ARC))?" }, securityLevel = 1)
-	public void scpSearch(CommandData data) {
-		helen.sendMessage(data.getResponseTarget(), data.getSender() + ": " + Pages.getPageInfo(data.getCommand()));
-	}
-
-    @IRCCommand(command = {".s",".sea"}, startOfLine = true, securityLevel = 1)
-	public void findSkip(CommandData data){
-		helen.sendMessage(data.getResponseTarget(), data.getSender() + ": " + Pages.getPotentialTargets(data.getSplitMessage(), data.getSender()));
-	}
-
-	Pattern p = Pattern.compile("(scp|SCP)-([0-9]+)(-(ex|EX|j|J|arc|ARC))?");
-    @IRCCommand(command = {".hs", ".hsea"}, coexistWithJarvis = true, startOfLine = true, securityLevel = 1)
-    public void findSkipHelen(CommandData data) {
-	    if(p.matcher(data.getTarget()).matches()){
-            helen.sendMessage(data.getResponseTarget(), data.getSender() + ": " + Pages.getPageInfo(data.getTarget()));
-        }else {
-            helen.sendMessage(data.getResponseTarget(), data.getSender() + ": " + Pages.getPotentialTargets(data.getSplitMessage(), data.getSender()));
+        for (String s: cmd.command()) {
+          logger.info("Loaded command: " + m + " with activation string " + s);
         }
+      }
     }
+    logger.info("Finished initializing commandList.");
+  }
 
-	@IRCCommand(command = {".pronouns", ".pronoun"}, startOfLine = true, coexistWithJarvis = true, securityLevel = 1)
-	public void getPronouns(CommandData data) {
+  public static String error() {
+    return "I'm sorry, there was an error. Please inform " +
+           Configs.getSingleProperty("contact").value + '.';
+  }
 
-		helen.sendMessage(data.getResponseTarget(), data.getSender() + ": " +
-				Pronouns.getPronouns((data.getSplitMessage().length > 1) ? data.getTarget() : data.getSender()));
+  private static <T> T notNull(@Nullable T t) throws IncorrectUsageException {
+    if (t == null) {
+      throw new IncorrectUsageException(MORE_ARGS);
+    }
+    return t;
+  }
 
+  private static String buildResponse(Stream<?> dbo) {
+    return '{' + dbo.map(Object::toString).collect(Collectors.joining(", ")) + '}';
+  }
 
-	}
+  private final Bot helen;
 
-	@IRCCommand(command = ".myPronouns", startOfLine = true, coexistWithJarvis = true, securityLevel = 1)
-	public void myPronouns(CommandData data) {
-		helen.sendMessage(data.getResponseTarget(), data.getSender() + ": " + Pronouns.getPronouns(data.getSender()));
-	}
-	//TODO make this less stupid
-	@IRCCommand(command = ".helenconf", startOfLine = true, coexistWithJarvis = true, securityLevel = 4)
-	public void configure(CommandData data) {
-		if(data.getSplitMessage().length == 1){
-			helen.sendMessage(data.getResponseTarget(), data.getSender() + ": " + "{shoot|lcratings}");
-		}else{
-			helen.sendMessage(data.getResponseTarget(), data.getSender() + ": " + Configs.insertToggle(data, data.getTarget(),
-					data.getSplitMessage()[2].equalsIgnoreCase("true") ? true : false));
-		}
-	}
+  private boolean adminMode = false;
+  private int bullets = 6;
 
-	@IRCCommand(command = ".setPronouns", startOfLine = true, coexistWithJarvis = true, securityLevel = 1)
-	public void setPronouns(CommandData data) {
-		String response = Pronouns.insertPronouns(data);
-		if (response.contains("banned term")) {
-			for(Config c : Configs.getProperty("registeredNicks")){
-				Tells.sendTell(c.getValue(), "Secretary_Helen",
-						"User " + data.getSender() + " attempted to add a banned term:" + response +". Their full message "
-						+ "was: " + data.getMessage(), true);
+  public Command(Bot helen) {
+    this.helen = helen;
+  }
 
-			}
-		}
-		helen.sendMessage(data.getResponseTarget(), data.getSender() + ": " + response);
-	}
+  private int getSecurityLevel(CommandData data) {
+    User[] userlist = data.channel == null ? null : helen.getUsers(data.channel);
+    if (data.isWhiteList()) {
+      return 4;
+    } else if (userlist != null) {
+      for (User user : userlist) {
+        if (data.sender.equalsIgnoreCase(user.getNick())) {
+          if (user.isOp()) {
+            return 3;
+          }
+          switch (user.getPrefix()) {
+            case "~":
+            case "&":
+              return 3;
 
-	@IRCCommand(command = ".clearPronouns", startOfLine = true, coexistWithJarvis = true, securityLevel = 1)
-	public void clearPronouns(CommandData data) {
-		helen.sendMessage(data.getResponseTarget(), data.getSender() + ": " + Pronouns.clearPronouns(data.getSender()));
-	}
+            case "%":
+              return 2;
 
-	@IRCCommand(command = ".deletePronouns", startOfLine = true, coexistWithJarvis = true, securityLevel = 2)
-	public void removePronouns(CommandData data) {
-		if(data.getTarget() != null){
-			helen.sendMessage(data.getResponseTarget(), data.getSender() + ": " + Pronouns.clearPronouns(data.getTarget()));
-		}
-		else{
-			helen.sendMessage(data.getResponseTarget(), data.getSender() + ": Please specify the user to delete pronouns for.");
-		}
+            default:
+              return 1;
+          }
+        }
+      }
+    }
+    return 1;
+  }
 
-	}
+  private boolean jarvisPermits(CommandData data, Method m) {
+    return m.getAnnotation(IRCCommand.class).coexistWithJarvis()
+           || data.channel == null
+           || !helen.jarvisIsPresent(data.channel.toLowerCase());
+  }
 
-	@IRCCommand(command = {".def",".definition"}, startOfLine = true, coexistWithJarvis = false, securityLevel = 1)
-	public void define(CommandData data){
-		helen.sendMessage(data.getResponseTarget(), data.getSender() + ": " + WebsterSearch.dictionarySearch(data.getTarget()));
-	}
+  private int securityThreshold(Method m) {
+    return adminMode
+           ? StrictMath.max(m.getAnnotation(IRCCommand.class).securityLevel(), ADMIN_SECURITY)
+           : m.getAnnotation(IRCCommand.class).securityLevel();
+  }
+  private String unauthorized(CommandData data, int securityLevel) {
+    return "User " + data.sender + " attempted to use command: " +
+           data.getCommand() + " which is above their security level of: " +
+           securityLevel + (adminMode ? ". I am currently in admin mode." : ".");
+  }
 
-	// Authentication Required Commands
-	@IRCCommand(command = ".join", startOfLine = true, coexistWithJarvis = true, securityLevel = 3)
-	public void enterChannel(CommandData data) {
-		helen.joinJarvyChannel(data.getTarget());
+  private void onError(CommandData data, String label, Exception e) {
+    if (e instanceof InvocationTargetException) {
+      Throwable error = ((InvocationTargetException) e).getTargetException();
+      if (error instanceof IncorrectUsageException) {
+        helen.sendReply(data, error.getMessage());
+      } else {
+        helen.sendReply(data, error());
+        logger.error("Exception invoking " + label + ": " + data.getCommand(), error);
+      }
+    } else {
+      logger.error("Exception invoking " + label + ": " + data.getCommand(), e);
+    }
+  }
 
-	}
+  public void dispatchTable(CommandData data) {
+    int securityLevel = getSecurityLevel(data);
+    String cmd = data.getCommand();
+    Method mHash = cmd == null ? null : hashableCommandList.get(cmd.toLowerCase());
+    // If we can use hashcommands, do so
+    if (mHash != null) {
+      try {
+        if (jarvisPermits(data, mHash)) {
+          if (securityLevel >= securityThreshold(mHash)) {
+            mHash.invoke(this, data);
+          } else {
+            logger.info(unauthorized(data, securityLevel));
+          }
+        }
+      } catch (IllegalAccessException | IllegalArgumentException | InvocationTargetException e) {
+        onError(data, "start-of-line command", e);
+      }
+      // otherwise, run the command string against all the contains
+      // commands
+    } else {
+      for (Map.Entry<String, Method> stringMethodEntry : slowCommands.entrySet()) {
+        if (data.message.toLowerCase().contains(stringMethodEntry.getKey().toLowerCase())) {
+          try {
+            Method mContains = stringMethodEntry.getValue();
+            if (jarvisPermits(data, mContains)) {
+              if (securityLevel >= securityThreshold (mContains)) {
+                mContains.invoke(this, data);
+              } else {
+                logger.info(unauthorized(data, securityLevel));
+              }
+            }
+          } catch (IllegalAccessException | IllegalArgumentException | InvocationTargetException e) {
+            onError(data, "command", e);
+          }
+        }
+      }
 
-	@IRCCommand(command = ".leave", startOfLine = true, coexistWithJarvis = true, securityLevel = 3)
-	public void leaveChannel(CommandData data) {
-		helen.partChannel(data.getTarget());
-	}
+      // lastly check the string against any regex commands
+      if (cmd != null) {
+        for (Map.Entry<String, Method> stringMethodEntry : regexCommands.entrySet()) {
+          Pattern r = Pattern.compile(stringMethodEntry.getKey(), Pattern.CASE_INSENSITIVE);
 
-	@IRCCommand(command = ".tell", startOfLine = true, securityLevel = 1)
-	public void tell(CommandData data) {
-		String str = Tells.sendTell(data.getTarget(), data.getSender(), data.getTellMessage(),
-				(data.getChannel().isEmpty() ? true : false));
-		helen.sendMessage(data.getResponseTarget(), data.getSender() + ": " + str);
-	}
+          Matcher match = r.matcher(cmd);
+          if (match.matches()) {
+            Method mRegex = stringMethodEntry.getValue();
+            IRCCommand irc = mRegex.getAnnotation(IRCCommand.class);
+            try {
+              if (irc.matcherGroup() != -1) {
+                data.regexTarget = match.group(irc.matcherGroup());
+              }
+              if (jarvisPermits(data, mRegex)) {
+                if (securityLevel >= securityThreshold(mRegex)) {
+                  mRegex.invoke(this, data);
+                } else {
+                  logger.info(unauthorized(data, securityLevel));
+                }
+              }
+            } catch (IllegalAccessException | IllegalArgumentException | InvocationTargetException e) {
+              onError(data, "RegEx command", e);
+            }
+          }
+        }
+      }
+    }
+  }
 
-	@IRCCommand(command = ".mtell", startOfLine = true, securityLevel = 1,coexistWithJarvis = true)
-	public void multiTell(CommandData data) {
-		String str = Tells.sendMultitell(data);
-		helen.sendMessage(data.getResponseTarget(), data.getSender() + ": " + str);
-	}
+  // Relatively unregulated commands (anyone can try these)
+  @IRCCommand(command = { ".HelenBot" }, startOfLine = true, coexistWithJarvis = true, securityLevel = 1)
+  public void versionResponse(CommandData data) {
+    Config version = Configs.getSingleProperty("version");
+    helen.sendReply(data, "Greetings! I am HelenBot v" + version.value + '.');
+  }
 
-	@IRCCommand(command = ".exit", startOfLine = true, coexistWithJarvis = true, securityLevel = 4)
-	public void exitBot(CommandData data) {
-		for (String channel : helen.getChannels()) {
-			helen.partChannel(channel, "Stay out of the revolver's sights...");
-		}
-		try {
-			Thread.sleep(5000);
-		} catch (Exception e) {
+  @IRCCommand(command = { ".modeToggle" }, startOfLine = true, coexistWithJarvis = true, securityLevel = 3)
+  public void toggleMode(CommandData data) {
+    adminMode = !adminMode;
+    helen.sendReply(data, "I am now in " + (adminMode ? "Admin Only" : "Any User") + " mode.");
+  }
 
-		}
-		helen.disconnect();
-		System.exit(0);
+  @IRCCommand(command = { ".checkJarvis" }, startOfLine = true, coexistWithJarvis = true, securityLevel = 2)
+  public void findJarvisInChannel(CommandData data) {
+    if (data.channel == null) {
+      helen.sendReply(data, Command.CHANNEL_ONLY);
+    } else {
+      helen.jarvisReset(data.channel);
+      helen.sendWho(data.channel);
+      helen.sendReply(data, "Checking channel members…");
+    }
+  }
 
-	}
+  @IRCCommand(command = { ".jarvistest" }, startOfLine = true, coexistWithJarvis = true, securityLevel = 4)
+  public void listTest(CommandData data) {
+    helen.sendReply(data, Boolean.toString(helen.jarvisIsPresent(data.getTarget())));
+  }
 
-	@IRCCommand(command = ".allProperties", startOfLine = true, securityLevel = 3)
-	public void getAllProperties(CommandData data) {
-		ArrayList<Config> properties = Configs.getConfiguredProperties(true);
-		helen.sendMessage(data.getResponseTarget(),
-				data.getSender() + ": Configured properties: " + buildResponse(properties));
-	}
+  @IRCCommand(command = { ".ch", ".choose" }, startOfLine = true, securityLevel = 1)
+  public void choose(CommandData data) throws IncorrectUsageException {
+    String message = data.getMessageWithoutCommand();
+    if (message == null) {
+      helen.sendReply(data, "I choose nothing.");
+    } else {
+      String[] choices = Utils.split(',', notNull(data.getMessageWithoutCommand()));
+      helen.sendReply(data, choices[new Random().nextInt(choices.length)]);
+    }
+  }
 
-	@IRCCommand(command = ".property", startOfLine = true, coexistWithJarvis = true, securityLevel = 2)
-	public void getProperty(CommandData data) {
-		ArrayList<Config> properties = Configs.getProperty(data.getTarget());
-		helen.sendMessage(data.getResponseTarget(),
-				data.getSender() + ": Configured properties: " + buildResponse(properties));
-	}
+  @IRCCommand(command = { ".mode" }, startOfLine = true, coexistWithJarvis = true, securityLevel = 2)
+  public void displayMode(CommandData data) {
+    helen.sendReply(data, "I am currently in " + (adminMode ? "Admin Only" : "Any User") + " mode.");
+  }
 
-	@IRCCommand(command = ".setProperty", startOfLine = true, coexistWithJarvis = true, securityLevel = 4)
-	public void setProperty(CommandData data) {
-		String properties = Configs.setProperty(data.getSplitMessage()[1], data.getSplitMessage()[2],
-				data.getSplitMessage()[3]);
-		helen.sendMessage(data.getResponseTarget(), data.getSender() + ": " + properties);
-	}
+  @IRCCommand(command = { ".msg" }, startOfLine = true, securityLevel = 1)
+  public void sendMessage(CommandData data) throws IncorrectUsageException {
+    helen.sendMessage(notNull(
+        data.getTarget()),
+        data.sender + " said: " + notNull(data.getPayload())
+    );
+  }
 
-	@IRCCommand(command = ".updateProperty", startOfLine = true, coexistWithJarvis = true, securityLevel = 4)
-	public void updateProperty(CommandData data) {
-		String properties = Configs.updateSingle(data.getSplitMessage()[1], data.getSplitMessage()[2],
-				data.getSplitMessage()[3]);
-		helen.sendMessage(data.getResponseTarget(), data.getSender() + ": " + properties);
-	}
+  @IRCCommand(command = {".addNick"}, startOfLine = true, coexistWithJarvis = true, securityLevel = 1)
+  public void addNick(CommandData data) throws SQLException {
+    helen.sendReply(data, Nicks.addNick(data));
+  }
 
-	@IRCCommand(command = ".deleteProperty", startOfLine = true, securityLevel = 4)
-	public void deleteProperty(CommandData data) {
-		String properties = Configs.removeProperty(data.getSplitMessage()[1], data.getSplitMessage()[2]);
-		helen.sendMessage(data.getResponseTarget(), data.getSender() + ": " + properties);
-	}
+  @IRCCommand(command = {".deleteNick"}, startOfLine = true, coexistWithJarvis = true, securityLevel = 1)
+  public void deleteNick(CommandData data) throws SQLException {
+    helen.sendReply(data, Nicks.deleteNick(data));
+  }
 
-	@IRCCommand(command = {".clearCache",".clear"}, startOfLine = true, securityLevel = 4)
-	public void clearCache(CommandData data) {
-		Queries.clear();
-		Configs.clear();
-		Pronouns.reload();
-	}
+  @IRCCommand(command = {".deleteAllNicks"}, startOfLine = true, coexistWithJarvis = true, securityLevel = 1)
+  public void deleteAllNicks(CommandData data) throws SQLException {
+    helen.sendReply(data, Nicks.deleteAllNicks(data, true));
+  }
 
-	@IRCCommand(command = ".shoot", startOfLine = true, securityLevel = 4, coexistWithJarvis = true)
-	public void shootUser(CommandData data) {
-		if(Configs.commandEnabled(data, "shoot")){
-			if(data.getTarget().equalsIgnoreCase("Secretary_Helen")){
-				bullets--;
-				helen.sendAction(data.getChannel(), "shoots " + data.getSender());
-				if(bullets < 1){
-					reload(data);
-				}
-			}else{
-				helen.sendAction(data.getChannel(), "shoots " + data.getTarget());
-				bullets--;
-				if(bullets < 1){
-					reload(data);
-				}
-				helen.sendMessage(data.getChannel(), "Be careful " + data.getTarget() + ". I still have " +
-				(bullets > 1 ? bullets + " bullets left." : "one in the chamber."));
-			}
-		}
-	}
+  @IRCCommand(command = {".deleteNicksAdmin"}, startOfLine = true, coexistWithJarvis = true, securityLevel = 4)
+  public void deleteNicksAdmin(CommandData data) throws SQLException {
+    helen.sendReply(data, Nicks.deleteAllNicks(data, false));
+  }
 
-	@IRCCommand(command = ".reload", startOfLine = true, securityLevel = 4)
-	public void reload(CommandData data) {
-		helen.sendAction(data.getChannel(), "reloads all six cylinders.");
-		bullets = 6;
-	}
+  @IRCCommand(command = { ".roll" }, startOfLine = true, securityLevel = 1)
+  public void roll(CommandData data) throws IncorrectUsageException, SQLException {
+    String result = Rolls.roll(notNull(data.getMessageWithoutCommand()), data.sender);
+    helen.sendReply(data, result);
+  }
 
-	@IRCCommand(command = ".unload", startOfLine = true, securityLevel = 4, coexistWithJarvis = true)
-	public void unload(CommandData data) {
-		if(Configs.commandEnabled(data, "shoot")){
-			if(data.getTarget().equalsIgnoreCase("Secretary_Helen")){
-				bullets--;
-				helen.sendAction(data.getChannel(), "shoots " + data.getSender());
-				if(bullets < 1){
-					reload(data);
-				}
-			}else{
-				helen.sendAction(data.getChannel(), "calmly thumbs back the hammer and unleashes"
-						+ (bullets == 6 ? " all six cylinders on " : " the remaining " + bullets + " cylinders on ")
-				+ data.getTarget() + ".");
-				helen.sendMessage(data.getChannel(), "Stay out of the revolver's sights.");
-				reload(data);
-			}
-		}
-	}
+  @IRCCommand(command = { ".myRolls", ".myrolls" }, startOfLine = true, securityLevel = 1)
+  public void getRolls(CommandData data) throws SQLException {
+    Collection<Roll> rolls = Rolls.getRolls(data.sender);
+    if (rolls.isEmpty()) {
+      helen.sendReply(data, "*Checks her clipboard* Apologies, I do not have any saved rolls for you at this time.");
+    } else {
+      helen.sendMessage(data.getResponseTarget(), buildResponse(rolls.stream()));
+    }
+  }
 
-	@IRCCommand(command = ".discord", startOfLine = true, securityLevel = 4, coexistWithJarvis = true)
-	public void showDiscordMessage(CommandData data){
-		helen.sendMessage(data.getChannel(), "There are currently no plans for an official SCP Discord." +
-		" Staff feel that, at this time, the benefits of Discord do not outweigh the difficulties of moderation," +
-				" and the resulting fracturing between IRC and Discord. There are also several concerns about " +
-				"the technical and financial viability of discord.");
-	}
+  @IRCCommand(command = {".hugme"}, startOfLine = true, coexistWithJarvis = true, securityLevel = 1)
+  public void hugMe(CommandData data) throws IncorrectUsageException {
+    if (data.isHugList()) {
+      helen.sendReply(data, Hugs.storeHugmessage(data));
+    } else {
+      helen.sendReply(data, "You're not authorized to do that.");
+    }
+  }
 
-	@IRCCommand(command = ".updateBans", startOfLine = true, securityLevel = 4, coexistWithJarvis = true)
-	public void updateBans(CommandData data) {
-		try {
-			Bans.updateBans();
-			helen.sendMessage(data.getChannel(), "Ban List successfully updated.");
-		} catch (Exception e) {
-			helen.sendMessage(data.getChannel(), "Error parsing chat ban page. Please check the page for correct syntax.");
-			logger.error("Exception attempting to update bans.",e);
-		}
-	}
+  @IRCCommand(command={".hugHelen",".helenhug",".hugsplox"}, startOfLine = true, coexistWithJarvis = true, securityLevel = 1)
+  public void hug(CommandData data) {
+    if (data.isHugList()) {
+      helen.sendReply(data, Hugs.getHugMessage(data.sender.toLowerCase()));
+    } else if (data.isWhiteList()) {
+      helen.sendAction(data.getResponseTarget(), "hugs " + data.sender + '.');
+    } else {
+      String[] messages = new String[]{
+          "Thank you for the display of affection.",
+          "*Click* Please remove your hands from my cylinders.",
+          "Hugging a revolver must be difficult.",
+          "You're smudging my finish.",
+          "*Sigh* And I just calibrated my sights…",
+          "I'm not sure why you're hugging me but… thank… you?",
+          "Yes… Human emotion. This is… nice. Please let go of me."};
 
-	@IRCCommand(command = ".user", startOfLine = true, securityLevel = 1, coexistWithJarvis = false)
-	public void getUserName(CommandData data){
-    	List<String> list = new ArrayList<>();
-    	String[] words = data.getSplitMessage();
-    	for(int i = 1; i < words.length; i++){
-    		list.add(words[i]);
-		}
-    	helen.sendMessage(data.getChannel(), data.getSender() + ": http://www.wikidot.com/user:info/" + StringUtils.join(list,"_"));
-	}
+      helen.sendReply(data, messages[new Random().nextInt(messages.length)]);
+    }
+  }
 
-	private String buildResponse(ArrayList<? extends DatabaseObject> dbo) {
-		StringBuilder str = new StringBuilder();
-		str.append("{");
-		for (int i = 0; i < dbo.size(); i++) {
-			if(dbo.get(i).displayToUser()){
-				if (i != 0) {
-					str.append(dbo.get(i).getDelimiter());
-				}
-				str.append(dbo.get(i).toString());
-			}
-		}
-		str.append("}");
-		return str.toString();
-	}
+  @IRCCommand(command = { ".average", ".avg" }, startOfLine = true, securityLevel = 1)
+  public void getAverage(CommandData data) throws IncorrectUsageException, SQLException {
+    helen.sendReply(data, Rolls.getAverage(notNull(data.getTarget()), data.sender));
+  }
+
+  @IRCCommand(command = { ".g", ".google" }, startOfLine = true, securityLevel = 1)
+  public void webSearch(CommandData data) throws IncorrectUsageException {
+    GoogleResults results = WebSearch.search(notNull(data.getMessageWithoutCommand()));
+    helen.sendReply(data, results == null ? null : results.toString());
+  }
+
+  @IRCCommand(command = { ".gis" }, startOfLine = true, securityLevel = 1)
+  public void imageSearch(CommandData data) throws IncorrectUsageException {
+    GoogleResults results = WebSearch.imageSearch(notNull(data.getMessageWithoutCommand()));
+    helen.sendReply(data, results == null ? null : results.toString());
+  }
+
+  @IRCCommand(command = { ".w", ".wiki", ".wikipedia" }, startOfLine = true, securityLevel = 1)
+  public void wikipediaSearch(CommandData data) throws IncorrectUsageException {
+    helen.sendReply(data, WikipediaSearch.search(data, notNull(data.getMessageWithoutCommand())));
+  }
+
+  @IRCCommand(command = { ".y", ".yt", ".youtube" }, startOfLine = true, securityLevel = 1)
+  public void youtubeSearch(CommandData data) throws IncorrectUsageException {
+    helen.sendReply(data, YouTubeSearch.youtubeSearch(notNull(data.getMessageWithoutCommand())));
+  }
+
+  @IRCCommand(command = {".helen", ".helenHelp"}, startOfLine = true, securityLevel = 1, coexistWithJarvis = true)
+  public void helenHelp(CommandData data) {
+    help(data);
+  }
+
+  @IRCCommand(command = ".help", startOfLine = true, securityLevel = 1)
+  public void help(CommandData data) {
+    helen.sendReply(data, "You can find a list of my job responsibilities here: http://home.helenbot.com/usage.html");
+  }
+
+  @IRCCommand(command = ".seen", startOfLine = true, securityLevel = 1)
+  public void seen(CommandData data) throws IncorrectUsageException, SQLException {
+    helen.sendMessage(data.getResponseTarget(), Users.seen(data));
+  }
+
+  @IRCCommand(command = ".sm", startOfLine = true, securityLevel = 1)
+  public void selectResult(CommandData data) throws IncorrectUsageException {
+    helen.sendReply(data, StoredCommands.run(notNull(data.getTarget()), data.sender));
+  }
+
+  @IRCCommand(command = {".lc",".l"}, startOfLine = true, securityLevel = 1)
+  public void lastCreated(CommandData data)
+      throws IOException, XmlRpcException, IncorrectUsageException, SQLException {
+    for (String page : Pages.lastCreated(data)) {
+      helen.sendReply(data, page);
+    }
+  }
+
+  @IRCCommand(command = {".hlc", ".hl"}, coexistWithJarvis = true, startOfLine = true, securityLevel = 1)
+  public void lastCreatedHelen(CommandData data)
+      throws IncorrectUsageException, XmlRpcException, IOException, SQLException {
+    lastCreated(data);
+  }
+
+  @IRCCommand(command = ".au", startOfLine = true, securityLevel = 1)
+  public void authorDetail(CommandData data) throws SQLException {
+    String msg = data.getMessageWithoutCommand();
+    helen.sendReply(data, Pages.getAuthorDetail(data, msg == null ? data.sender : msg));
+  }
+
+  @IRCCommand(command = "SCPPAGEREGEX", startOfLine= true, reg = true, regex = { "http:\\/\\/www.scp-wiki.net\\/(.*)" }, securityLevel = 1, matcherGroup = 1)
+  public void getPageInfo(CommandData data) throws XmlRpcException, SQLException {
+    String regexTarget = data.regexTarget;
+    if (regexTarget != null && !regexTarget.contains("/") && !regexTarget.contains("forum")) {
+      helen.sendReply(data, Pages.getPageInfo(regexTarget));
+    }
+  }
+
+  @IRCCommand(command = "SCP", startOfLine = true, reg = true, regex = { "(scp|SCP)-([^\\s]+)(-(ex|EX|j|J|arc|ARC))?" }, securityLevel = 1)
+  public void scpSearch(CommandData data)
+      throws IncorrectUsageException, XmlRpcException, SQLException {
+    helen.sendReply(data, Pages.getPageInfo(notNull(data.getCommand())));
+  }
+
+  @IRCCommand(command = {".s",".sea",".search"}, startOfLine = true, securityLevel = 1)
+  public void findSkip(CommandData data) throws SQLException, XmlRpcException, ParseException {
+    helen.sendReply(data, Pages.getPotentialTargets(data.splitMessage, data.sender));
+  }
+
+  private static final Pattern SCP = Pattern.compile("(scp|SCP)-([^\\s]+)(-(ex|EX|j|J|arc|ARC))?");
+  @IRCCommand(command = {".hs", ".hsea"}, coexistWithJarvis = true, startOfLine = true, securityLevel = 1)
+  public void findSkipHelen(CommandData data)
+      throws IncorrectUsageException, XmlRpcException, SQLException, ParseException {
+    if (SCP.matcher(notNull(data.getTarget())).matches()) {
+      helen.sendReply(data, Pages.getPageInfo(data.getTarget()));
+    } else {
+      helen.sendReply(data, Pages.getPotentialTargets(data.splitMessage, data.sender));
+    }
+  }
+
+  @IRCCommand(command = {".pronouns", ".pronoun"}, startOfLine = true, coexistWithJarvis = true, securityLevel = 1)
+  public void getPronouns(CommandData data) throws SQLException {
+    String target = data.getTarget();
+    helen.sendReply(data, Pronouns.getPronouns(target == null ? data.sender : target));
+  }
+
+  @IRCCommand(command = ".myPronouns", startOfLine = true, coexistWithJarvis = true, securityLevel = 1)
+  public void myPronouns(CommandData data) throws SQLException {
+    helen.sendReply(data, Pronouns.getPronouns(data.sender));
+  }
+  //TODO make this less stupid
+  @IRCCommand(command = ".helenconf", startOfLine = true, coexistWithJarvis = true, securityLevel = 4)
+  public void configure(CommandData data) throws IncorrectUsageException {
+    if (data.splitMessage.length == 1) {
+      helen.sendReply(data, "{shoot|lcratings}");
+    } else if (data.splitMessage.length <= 2) {
+      throw new IncorrectUsageException(MORE_ARGS);
+    } else {
+      helen.sendReply(data, Configs.insertToggle(data, notNull(data.getTarget()),
+          "true".equalsIgnoreCase(data.splitMessage[2])));
+    }
+  }
+
+  @IRCCommand(command = ".setPronouns", startOfLine = true, coexistWithJarvis = true, securityLevel = 1)
+  public void setPronouns(CommandData data) throws IncorrectUsageException, SQLException {
+    String response = Pronouns.insertPronouns(data);
+    if (response.contains("banned term")) {
+      for (Config c : Configs.getProperty("registeredNicks")) {
+        Tells.sendTell(c.value, Configs.getSingleProperty("BOT_NAME").value,
+            "User " + data.sender + " attempted to add a banned term:" + response +
+            ". Their full message was: " + data.message, true);
+
+      }
+    }
+    helen.sendReply(data, response);
+  }
+
+  @IRCCommand(command = ".clearPronouns", startOfLine = true, coexistWithJarvis = true, securityLevel = 1)
+  public void clearPronouns(CommandData data) throws SQLException {
+    helen.sendReply(data, Pronouns.clearPronouns(data.sender));
+  }
+
+  @IRCCommand(command = ".deletePronouns", startOfLine = true, coexistWithJarvis = true, securityLevel = 2)
+  public void removePronouns(CommandData data) throws IncorrectUsageException, SQLException {
+    helen.sendReply(data, Pronouns.clearPronouns(notNull(data.getTarget())));
+  }
+
+  @IRCCommand(command = {".def",".definition"}, startOfLine = true, securityLevel = 1)
+  public void define(CommandData data)
+      throws IncorrectUsageException, ParserConfigurationException {
+    helen.sendReply(data, WebsterSearch.dictionarySearch(notNull(data.getMessageWithoutCommand())));
+  }
+
+  // Authentication Required Command
+  @IRCCommand(command = ".join", startOfLine = true, coexistWithJarvis = true, securityLevel = 3)
+  public void enterChannel(CommandData data) throws IncorrectUsageException {
+    helen.joinJarvyChannel(notNull(data.getTarget()));
+
+  }
+
+  @IRCCommand(command = ".leave", startOfLine = true, coexistWithJarvis = true, securityLevel = 3)
+  public void leaveChannel(CommandData data) throws IncorrectUsageException {
+    helen.partChannel(notNull(data.getTarget()));
+  }
+
+  @IRCCommand(command = ".tell", startOfLine = true, securityLevel = 1)
+  public void tell(CommandData data) throws IncorrectUsageException, SQLException {
+    String str = Tells.sendTell(
+        notNull(data.getTarget()), data.sender, notNull(data.getTellMessage()), data.channel == null
+    );
+    helen.sendReply(data, str);
+  }
+
+  @IRCCommand(command = ".mtell", startOfLine = true, securityLevel = 1,coexistWithJarvis = true)
+  public void multiTell(CommandData data) throws IncorrectUsageException, SQLException {
+    String str = Tells.sendMultitell(data);
+    helen.sendReply(data, str);
+  }
+
+  @IRCCommand(command = ".exit", startOfLine = true, coexistWithJarvis = true, securityLevel = 4)
+  public void exitBot(CommandData data) {
+    for (String channel : helen.getChannels()) {
+      helen.partChannel(channel, "Stay out of the revolver's sights…");
+    }
+    try {
+      Thread.sleep(5_000);
+    } catch (InterruptedException ignored) {}
+    helen.disconnect();
+    System.exit(0);
+  }
+
+  @IRCCommand(command = ".allProperties", startOfLine = true, securityLevel = 3)
+  public void getAllProperties(CommandData data) {
+    Stream<Config> properties = Configs.getConfiguredProperties(true);
+    helen.sendReply(data, "Configured properties: " + buildResponse(properties));
+  }
+
+  @IRCCommand(command = ".revealProperties", startOfLine = true, securityLevel = 4)
+  public void revealProperties(CommandData data) {
+    Stream<Config> properties = Configs.getConfiguredProperties(false);
+    helen.sendReply(data, "Configured properties: " + buildResponse(properties));
+  }
+
+  @IRCCommand(command = ".property", startOfLine = true, coexistWithJarvis = true, securityLevel = 2)
+  public void getProperty(CommandData data) throws IncorrectUsageException {
+    Stream<Config> properties = Configs
+        .getProperty(notNull(data.getTarget()))
+        .stream()
+        .filter(x -> x.isPublic);
+    helen.sendReply(data, "Configured properties: " + buildResponse(properties));
+  }
+
+  @IRCCommand(command = ".setProperty", startOfLine = true, coexistWithJarvis = true, securityLevel = 4)
+  public void setProperty(CommandData data) throws IncorrectUsageException {
+    if (data.splitMessage.length <= 3) {
+      throw new IncorrectUsageException(MORE_ARGS);
+    }
+    String properties = Configs.setProperty(
+        data.splitMessage[1],
+        data.splitMessage[2],
+        "t".equalsIgnoreCase(data.splitMessage[3])
+    );
+    helen.sendReply(data, properties);
+  }
+
+  @IRCCommand(command = ".updateProperty", startOfLine = true, coexistWithJarvis = true, securityLevel = 4)
+  public void updateProperty(CommandData data) throws IncorrectUsageException {
+    if (data.splitMessage.length <= 3) {
+      throw new IncorrectUsageException(MORE_ARGS);
+    }
+    String properties = Configs.updateSingle(
+        data.splitMessage[1],
+        data.splitMessage[2],
+        "t".equalsIgnoreCase(data.splitMessage[3])
+    );
+    helen.sendReply(data, properties);
+  }
+
+  @IRCCommand(command = ".deleteProperty", startOfLine = true, securityLevel = 4)
+  public void deleteProperty(CommandData data) throws IncorrectUsageException {
+    if (data.splitMessage.length <= 2) {
+      throw new IncorrectUsageException(MORE_ARGS);
+    }
+    String properties = Configs.removeProperty(data.splitMessage[1], data.splitMessage[2]);
+    helen.sendReply(data, properties);
+  }
+
+  @IRCCommand(command = {".clearCache",".clear"}, startOfLine = true, securityLevel = 4)
+  public static void clearCache(CommandData data) {
+    Statements.clear();
+    Configs.clear();
+    Pronouns.reload();
+  }
+
+  @IRCCommand(command = ".shoot", startOfLine = true, securityLevel = 4, coexistWithJarvis = true)
+  public void shootUser(CommandData data) throws IncorrectUsageException {
+    if (Configs.commandEnabled(data, "shoot")) {
+      String target = notNull(data.getTarget());
+      if (Configs.getSingleProperty("BOT_NAME").value.equalsIgnoreCase(target)) {
+        bullets--;
+        helen.sendAction(data.getResponseTarget(), "shoots " + data.sender + '.');
+        if (bullets < 1) {
+          reload(data);
+        }
+      } else {
+        helen.sendAction(data.getResponseTarget(), "shoots " + target + '.');
+        bullets--;
+        if (bullets < 1) {
+          reload(data);
+        }
+        helen.sendMessage(data.getResponseTarget(),
+            "Be careful, " + target + ". I still have " +
+            (bullets > 1 ? bullets + " bullets left." : "one in the chamber.")
+        );
+      }
+    }
+  }
+
+  @IRCCommand(command = ".reload", startOfLine = true, securityLevel = 4)
+  public void reload(CommandData data) {
+    helen.sendAction(data.getResponseTarget(), "reloads all six cylinders.");
+    bullets = 6;
+  }
+
+  @IRCCommand(command = ".unload", startOfLine = true, securityLevel = 4, coexistWithJarvis = true)
+  public void unload(CommandData data) {
+    if (Configs.commandEnabled(data, "shoot")) {
+      if (Configs.getSingleProperty("BOT_NAME").value.equalsIgnoreCase(data.getTarget())) {
+        bullets--;
+        helen.sendAction(data.getResponseTarget(), "shoots " + data.sender);
+        if (bullets < 1) {
+          reload(data);
+        }
+      } else {
+        helen.sendAction(data.getResponseTarget(),
+            "calmly thumbs back the hammer and unleashes" +
+            (bullets == 6 ? " all six" : " the remaining " + bullets) +
+            " cylinders on " + data.getTarget() + '.'
+        );
+        helen.sendMessage(data.getResponseTarget(), "Stay out of the revolver's sights.");
+        reload(data);
+      }
+    }
+  }
+
+  @IRCCommand(command = ".discord", startOfLine = true, securityLevel = 4, coexistWithJarvis = true)
+  public void showDiscordMessage(CommandData data) {
+    helen.sendMessage(data.getResponseTarget(),
+        "There are currently no plans for an official SCP Discord. " +
+        "Staff feel that, at this time, the benefits of Discord do not outweigh the difficulties " +
+        "of moderation, and the resulting fracturing between IRC and Discord. " +
+        "There are also several concerns about the technical and financial viability of Discord.");
+  }
+
+  @IRCCommand(command = ".updateBans", startOfLine = true, securityLevel = 4, coexistWithJarvis = true)
+  public void updateBans(CommandData data) {
+    helen.sendMessage(data.getResponseTarget(),
+        Bans.updateBans()
+        ? "Ban list successfully updated."
+        : "Error parsing chat ban page. Please check the page for correct syntax."
+    );
+  }
+
+  @IRCCommand(command = ".user", startOfLine = true, securityLevel = 1)
+  public void getUserName(CommandData data) throws IncorrectUsageException {
+    if (data.splitMessage.length <= 1) {
+      throw new IncorrectUsageException(MORE_ARGS);
+    }
+    Collection<String> list = Arrays.asList(data.splitMessage).subList(1, data.splitMessage.length);
+    helen.sendMessage(data.getResponseTarget(),
+        data.sender + ": http://www.wikidot.com/user:info/" +
+        Arrays.stream(data.splitMessage).skip(1).collect(Collectors.joining("_"))
+    );
+  }
 }

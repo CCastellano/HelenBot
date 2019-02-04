@@ -1,24 +1,23 @@
 package com.irc.helen;
 
-import java.io.IOException;
+import com.helen.*;
+import com.helen.bots.*;
+import org.apache.log4j.Logger;
+
 import java.util.Date;
 
-import org.apache.log4j.Logger;
-import org.jibble.pircbot.IrcException;
-import org.jibble.pircbot.NickAlreadyInUseException;
-
-import com.helen.bots.HelenBot;
-
 public class helen_main {
+	private static final Logger logger = Logger.getLogger(helen_main.class);
 
-	final static Logger logger = Logger.getLogger(helen_main.class);
-
-	public static void main(String[] args)
-			throws NickAlreadyInUseException, IOException, IrcException, InterruptedException {
-		logger.info("Starting up HelenBot process at: " + new Date().toString());
-		HelenBot helen = new HelenBot();
-		logger.info("Initialized " + helen.toString());
-		logger.info("Shutting down HelenBot process at: " + new Date().toString());
-
+	public static void main(String[] args) {
+	  try {
+      logger.info("Starting up HelenBot process at: " + new Date().toString());
+      HelenBot helen = Utils.timed("Initialized HelenBot", logger::info, HelenBot::new);
+      logger.info(helen.toString());
+    } catch (Exception e) {
+	    logger.error(e);
+	    e.printStackTrace();
+	    System.exit(1);
+    }
 	}
 }

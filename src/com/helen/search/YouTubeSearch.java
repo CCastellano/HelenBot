@@ -1,101 +1,117 @@
 package com.helen.search;
 
-import java.io.IOException;
-import java.math.BigInteger;
-import java.util.List;
-
-import org.apache.log4j.Logger;
-import org.jibble.pircbot.Colors;
-
-import com.google.api.client.http.HttpRequest;
-import com.google.api.client.http.HttpRequestInitializer;
+import com.google.api.client.http.javanet.NetHttpTransport;
+import com.google.api.client.json.jackson2.JacksonFactory;
 import com.google.api.services.youtube.YouTube;
 import com.google.api.services.youtube.model.SearchListResponse;
 import com.google.api.services.youtube.model.SearchResult;
 import com.google.api.services.youtube.model.Video;
 import com.google.api.services.youtube.model.VideoListResponse;
-import com.helen.database.Configs;
+import com.helen.database.*;
+import org.apache.log4j.Logger;
+import org.jibble.pircbot.Colors;
 
-public class YouTubeSearch {
+import javax.annotation.Nullable;
+import java.io.IOException;
+import java.math.BigInteger;
+import java.util.List;
+import java.util.regex.Pattern;
 
-	private final static Logger logger = Logger.getLogger(YouTubeSearch.class);
-	
-	public static String youtubeSearch(String searchTerm) {
+public final class YouTubeSearch {
+  private static final Logger logger = Logger.getLogger(YouTubeSearch.class);
 
-		YouTube youtube = new YouTube.Builder(Auth.HTTP_TRANSPORT, Auth.JSON_FACTORY, new HttpRequestInitializer() {
-			public void initialize(HttpRequest request) throws IOException {
-			}
-		}).setApplicationName("youtube-cmdline-search-sample").build();
+  private static final Pattern PT = Pattern.compile("PT");
+  private static final YouTube.Builder BUILDER = new YouTube.Builder(
+      new NetHttpTransport(),
+      new JacksonFactory(),
+      request -> {}
+  ).setApplicationName("youtube-cmdline-search-sample");
 
-		YouTube.Search.List search;
-		try {
-			search = youtube.search().list("id,snippet");
+  private static BigInteger orZero(@Nullable BigInteger i) {
+    return i == null ? BigInteger.ZERO : i;
+  }
 
-			search.setKey(Configs.getSingleProperty("apiKey").getValue());
-			search.setQ(searchTerm.substring(3, searchTerm.length()));
-			search.setType("video");
-			search.setFields("items(id/kind,id/videoId,snippet/title,snippet/thumbnails/default/url)");
-			search.setMaxResults(1l);
+  @Nullable
+  public static String youtubeSearch(String searchTerm) {
 
-			SearchListResponse searchResponse = search.execute();
-			List<SearchResult> searchResultList = searchResponse.getItems();
-			if (searchResultList != null) {
-				SearchResult video = searchResultList.get(0);
+    YouTube youtube = BUILDER.build();
 
-				StringBuilder str = new StringBuilder();
+    try {
+      YouTube.Search.List search = youtube.search().list("id,snippet");
 
-				YouTube.Videos.List videoRequest = youtube.videos().list("snippet, statistics, contentDetails");
-				videoRequest.setId(video.getId().getVideoId());
-				videoRequest.setKey(Configs.getSingleProperty("apiKey").getValue());
-				VideoListResponse listResponse = videoRequest.execute();
-				List<Video> videoList = listResponse.getItems();
+      search.setKey(Configs.getSingleProperty("apiKey").value);
+      search.setQ(searchTerm);
+      search.setType("video");
+      search.setFields("items(id/kind,id/videoId,snippet/title,snippet/thumbnails/default/url)");
+      search.setMaxResults(1L);
 
-				Video targetVideo = videoList.get(0);
-				BigInteger views = BigInteger.valueOf(0l);;
-				BigInteger rating = BigInteger.valueOf(0l);;
-				BigInteger dislikes = BigInteger.valueOf(0l);;
-				String time = targetVideo.getContentDetails().getDuration().split("PT")[1].toLowerCase();
-				
-				if(targetVideo.getStatistics() != null){
-					views = targetVideo.getStatistics().getViewCount() == null ? BigInteger.valueOf(0l) : targetVideo.getStatistics().getViewCount();
-					rating = targetVideo.getStatistics().getLikeCount() == null ? BigInteger.valueOf(0l) : targetVideo.getStatistics().getLikeCount();
-					dislikes = targetVideo.getStatistics().getDislikeCount() == null ? BigInteger.valueOf(0l) : targetVideo.getStatistics().getDislikeCount();
-				}
-				String uploader = targetVideo.getSnippet().getChannelTitle();
+      SearchListResponse searchResponse = search.execute();
+      List<SearchResult> searchResultList = searchResponse.getItems();
+      if (searchResultList == null || searchResultList.isEmpty()) {
+        return null;
+      }
+      SearchResult video = searchResultList.get(0);
 
-				str.append(Colors.BOLD);
-				str.append(video.getSnippet().getTitle());
-				str.append(Colors.NORMAL);
-				str.append(" -  length ");
-				str.append(Colors.BOLD);
-				str.append(time);
-				str.append(Colors.NORMAL);
-				str.append(" - ");
-				str.append(rating);
-				str.append("↑");
-				str.append(dislikes);
-				str.append("↓");
-				str.append(" - ");
-				str.append(Colors.BOLD);
-				str.append(views);
-				str.append(Colors.NORMAL);
-				str.append(" views");
-				str.append(" - ");
-				str.append(Colors.BOLD);
-				str.append(uploader);
-				str.append(Colors.NORMAL);
-				str.append(" - ");
-				str.append("https://www.youtube.com/watch?v=" + video.getId().getVideoId());
-				
-				return str.toString();
-			}
+      StringBuilder str = new StringBuilder();
 
-		} catch (IOException e) {
-			logger.error("There was an exception attempting to youtube search",e);
-		}
-		
-		return null;
+      YouTube.Videos.List videoRequest = youtube.videos().list("snippet, statistics, contentDetails");
+      videoRequest.setId(video.getId().getVideoId());
+      videoRequest.setKey(Configs.getSingleProperty("apiKey").value);
+      VideoListResponse listResponse = videoRequest.execute();
+      List<Video> videoList = listResponse.getItems();
+      if (videoList.isEmpty()) {
+        return null;
+      }
+      Video targetVideo = videoList.get(0);
+      BigInteger views;
+      BigInteger rating;
+      BigInteger dislikes;
+      if (targetVideo.getStatistics() != null) {
+        views    = orZero(targetVideo.getStatistics().getViewCount());
+        rating   = orZero(targetVideo.getStatistics().getLikeCount());
+        dislikes = orZero(targetVideo.getStatistics().getDislikeCount());
+      } else {
+        views    = BigInteger.ZERO;
+        rating   = BigInteger.ZERO;
+        dislikes = BigInteger.ZERO;
+      }
+      String[] duration = PT.split(targetVideo.getContentDetails().getDuration());
+      if (duration.length <= 1) {
+        logger.warn("Bad duration format: " + targetVideo.getContentDetails().getDuration());
+        return null;
+      }
+      String time = duration[1].toLowerCase();
+      String uploader = targetVideo.getSnippet().getChannelTitle();
 
-	}
-
+      return str
+          .append(Colors.BOLD)
+          .append(video.getSnippet().getTitle())
+          .append(Colors.NORMAL)
+          .append(" -  length ")
+          .append(Colors.BOLD)
+          .append(time)
+          .append(Colors.NORMAL)
+          .append(" - ")
+          .append(rating)
+          .append('↑')
+          .append(dislikes)
+          .append('↓')
+          .append(" - ")
+          .append(Colors.BOLD)
+          .append(views)
+          .append(Colors.NORMAL)
+          .append(" views")
+          .append(" - ")
+          .append(Colors.BOLD)
+          .append(uploader)
+          .append(Colors.NORMAL)
+          .append(" - ")
+          .append("https://www.youtube.com/watch?v=")
+          .append(video.getId().getVideoId())
+          .toString();
+    } catch (IOException e) {
+      logger.warn("There was an exception attempting to search YouTube", e);
+    }
+    return null;
+  }
 }
