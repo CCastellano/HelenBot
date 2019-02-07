@@ -184,7 +184,6 @@ public final class Pages {
           .append(Utils.fmtRating((int) obj.get("rating")))
           .append("; ");
     }
-    System.out.println(obj.get("created_at"));
     return str
         .append("written ")
         .append(Utils.findTime(Utils.parseZonedTime((String) obj.get("created_at"))))
@@ -203,17 +202,13 @@ public final class Pages {
 
     Map<String, Object> params = new HashMap<>();
     params.put("pages", pagenames);
-    try {
-      Map<String, Map<String, Object>> result = pushToAPI("pages.get_meta", params);
+    Map<String, Map<String, Object>> result = pushToAPI("pages.get_meta", params);
 
-      String[] results = new String[pagenames.length];
-      for (int i = 0; i < results.length; i++) {
-        results[i] = parsePageInfo(result.get(pagenames[i]), ratingEnabled);
-      }
-      return results;
-    } catch (ClassCastException ignored) {
-      return STRING_0;
+    String[] results = new String[pagenames.length];
+    for (int i = 0; i < results.length; i++) {
+      results[i] = parsePageInfo(result.get(pagenames[i]), ratingEnabled);
     }
+    return results;
   }
 
   @Nullable

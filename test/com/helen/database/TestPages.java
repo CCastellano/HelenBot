@@ -10,17 +10,16 @@ import java.util.Arrays;
 import java.util.Collection;
 
 public class TestPages {
+  private static final int PAGE_LIMIT = 20;
 
   @Test
   public void walk() throws XmlRpcException {
-    String[] list = Pages.listPages();
+    String[] titles = Pages.listPages();
+    if (titles.length > PAGE_LIMIT) {
+      titles = Arrays.copyOfRange(titles, 0, PAGE_LIMIT);
+    }
     Collection<Page> pages = new ArrayList<>();
-    Collection<String> tags = new ArrayList<>();
-    Pages.walk(Arrays.copyOfRange(list, 0, StrictMath.min(20, list.length)), (page, tagList) -> {
-      pages.add(page);
-      tags.addAll(Arrays.asList(tagList));
-    });
-    Assert.assertEquals("Wrong number of page results", 20, pages.size());
-    Assert.assertNotEquals("No tags found", 0, tags.size());
+    Pages.walk(titles, (page, tags) -> pages.add(page));
+    Assert.assertEquals("Wrong number of page results", titles.length, pages.size());
   }
 }

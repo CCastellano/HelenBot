@@ -36,10 +36,16 @@ public final class Rolls {
     for (; i < words.length; i++) {
       try {
         String word = words[i];
-        String[] info = Utils.split('d', word);
+        String lower = word.toLowerCase();
+        if ("d".equals(lower)) {
+          break;
+        } else if (lower.startsWith("d")) {
+          lower = "1" + lower;
+        }
+        String[] info = Utils.split('d', lower);
         switch (info.length) {
           case 0:
-            throw new IncorrectUsageException("I'm sorry, that isn't a valid dice string.");
+            throw new NumberFormatException(word);
 
           case 1:
             score += Integer.parseInt(word);
@@ -58,7 +64,6 @@ public final class Rolls {
             int min, max;
             switch (info[1]) {
               case "f":
-              case "F":
                 diceType = 'f';
                 min = -1;
                 max = 1;
@@ -89,7 +94,7 @@ public final class Rolls {
           default:
             break;
         }
-      } catch (NumberFormatException e) {
+      } catch (NumberFormatException ignored) {
         break;
       }
     }
