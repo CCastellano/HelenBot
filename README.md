@@ -6,7 +6,7 @@
 1. Clone the repository.
 2. Set up a [PostgreSQL database](https://www.postgresql.org/download/).
 3. Run `scripts/init.sql`.
-4. Copy `resources/.env.example` to `resources/.env` and fill out your database information.
+4. Copy `.env.example` to `.env` and fill out your database information.
 
 ## Usage
 
