@@ -1,0 +1,301 @@
+<!DOCTYPE HTML>
+<html>
+
+<head>
+  <title>HelenBot Usage</title>
+  <meta name="description" content="website description" />
+  <meta name="keywords" content="website keywords, website keywords" />
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8" />
+  <link rel="stylesheet" type="text/css" href="style/style.css" title="style" />
+  <style id="internal-style" type="text/css">
+    #content ul li {
+        margin-bottom: 3px;
+        padding-bottom: 2px;
+    }
+    #content ul ul {
+        margin: 5px 0 -5px 0;
+        font-style: italic;
+    }
+  </style>
+</head>
+
+<body>
+<div id="main">
+  <div id="header">
+    <div id="logo">
+      <img style="float: left;" src="/resources/Secretary_Helen.png" width=120px height=140px />
+      <div id="logo_text">
+        <!-- class="logo_colour", allows you to change the colour of the text -->
+        <h1><a href="index.html">HelenBot</a></h1>
+        <h2>Simple extensible chat bot written in java.</h2>
+        <h2 style="float: right">Image credit: ghost--page</h2>
+      </div>
+    </div>
+    <div id="menubar">
+      <ul id="menu">
+        <!-- put class="selected" in the li tag for the selected page - to highlight which page you're on -->
+        <li><a href="index.html">Home</a></li>
+        <li><a href="users.php">Users</a></li>
+        <li class="selected"><a href="usage.html">Usage</a></li>
+        <li><a href="sources.html">Sources</a></li>
+        <li><a href="tags.php">SCP Wiki Tags</a></li>
+      </ul>
+    </div>
+  </div>
+  <div id="site_content">
+    <div class="sidebar">
+      <!-- insert your sidebar items here -->
+      <h3>Latest News</h3>
+      <h4>New Website Launched</h4>
+      <h5>April 13th, 2017</h5>
+      <p>home.HelenBot.com is live!  This is the central repository for all things HelenBot related.<br /><a href="#">Read more</a></p>
+      <p></p>
+      <h3>Search</h3>
+      <form method="post" action="#" id="search_form">
+        <p>
+          <input class="search" type="text" name="search_field" value="Enter keywords....." />
+          <input name="search" type="image" style="border: 0; margin: 0 0 -9px 5px;" src="style/search.png" alt="Search" title="Search" />
+        </p>
+      </form>
+    </div>
+    <div id="content">
+      <h2>Usage</h2>
+      <hr/>
+      <h4>Optional parameters are surrounded by [brackets]</h4>
+      <h4>Multiple choices for an input are separated by |</h4>
+      <hr/>
+      <h3> The following commands will work with Jarvis present in the channel:</h3>
+      <h4><span>.HelenBot</span></h4>
+      <ul>
+        <li><strong>Usage:</strong> .HelenBot</li>
+        <li>Displays the current version of the bot.</li>
+      </ul>
+      <h4><span>.hugHelen | .helenHug</span></h4>
+      <ul>
+        <li><strong>Usage:</strong> .hugHelen</li>
+        <li>Hugs the bot!</li>
+        <li>Warning: she may respond with a snarky comment.</li>
+      </ul>
+      <h4><span>.hugme</span></h4>
+      <ul>
+        <li><strong>Usage:</strong> .hugme &lt;response for .hugHelen&gt;
+          <ul>
+            <li>.hugme Hello, friend.</li>
+          </ul>
+        </li>
+        <li>Sets the message you'd like Helen to say when you hug her.</li>
+        <li>Warning: only specific users are allowed to do this.</li>
+      </ul>
+      <h4><span>.pronouns | .pronoun</span></h4>
+      <ul>
+        <li><strong>Usage:</strong> .pronouns &lt;username&gt;
+          <ul>
+            <li>.pronouns Secretary_Helen</li>
+          </ul>
+        </li>
+        <li>Displays the pronouns of a user.</li>
+      </ul>
+      <h4><span>.myPronouns</span></h4>
+      <ul>
+        <li><strong>Usage:</strong> .myPronouns</li>
+        <li>Displays the pronouns of the person who uses the command.</li>
+      </ul>
+      <h4><span>.clearPronouns</span></h4>
+      <ul>
+        <li><strong>Usage:</strong> .clearPronouns</li>
+        <li>Clears the pronouns of the person who uses the command.</li>
+      </ul>
+      <h4><span>.setPronouns</span></h4>
+      <ul>
+        <li><strong>Usage:</strong> .setPronouns [accepted] &lt;list of pronouns&gt;
+          <ul>
+            <li>.setPronouns she her hers</li>
+            <li>.setPronouns accepted they them their</li>
+          </ul>
+        </li>
+        <li>Saves your preferences for regular or accepted pronouns.</li>
+      </ul>
+      <hr/>
+      <h3>The following commands only work if Jarvis is not present.</h3>
+      <h4><span>.au</span></h4>
+      <ul>
+        <li><strong>Usage:</strong> .au [&lt;username&gt;]
+          <ul>
+            <li>.au</li>
+            <li>.au HelenBot</li>
+          </ul>
+        </li>
+        <li>Displays stats about an author on the Foundation wiki.</li>
+        <li>If no username is specified, displays stats about the person who uses the command.</li>
+      </ul>
+      <h4><span>.ch | .choose</span></h4>
+      <ul>
+        <li><strong>Usage:</strong> .ch &lt;comma-separated list of choices&gt;
+          <ul>
+            <li>.ch Be a bot, Be a human</li>
+          </ul>
+        </li>
+        <li>Picks one of several choices.</li>
+      </ul>
+      <h4><span>.def | .definition</span></h4>
+      <ul>
+        <li><strong>Usage:</strong> .def &lt;query&gt;
+          <ul>
+            <li>.def revolver</li>
+          </ul>
+        </li>
+        <li>Searches the Merriam-Webster dictionary for a term.</li>
+      </ul>
+      <h4><span>.g | .google</span></h4>
+      <ul>
+        <li><strong>Usage:</strong> .g &lt;query&gt;
+          <ul>
+            <li>.g How is HelenBot so awesome?</li>
+          </ul>
+        </li>
+        <li>Searches Google for a term.</li>
+      </ul>
+      <h4><span>.gis</span></h4>
+      <ul>
+        <li><strong>Usage:</strong> .gis &lt;query&gt;
+          <ul>
+            <li>.gis revolver with a smiley face</li>
+          </ul>
+        </li>
+        <li>Searches Google Images for a term.</li>
+      </ul>
+      <h4><span>.lc | .lastcreated</span></h4>
+      <ul>
+        <li><strong>Usage:</strong> .lc</li>
+        <li>Lists the three most recently created pages on the Foundation wiki.</li>
+      </ul>
+      <h4><span>.mode</span></h4>
+      <ul>
+        <li><strong>Usage:</strong> .mode</li>
+        <li>Displays the currently active mode: Enabled for everyone, or Administrators only.</li>
+      </ul>
+      <h4><span>.msg</span></h4>
+      <ul>
+        <li><strong>Usage:</strong> .msg &lt;user&gt; &lt;message&gt;
+          <ul>
+            <li>.msg Secretary_Helen You're doing a great job!</li>
+          </ul>
+        </li>
+        <li>Sends a message to a user.</li>
+      </ul>
+      <h4><span>.roll</span></h4>
+      <ul>
+        <li><strong>Usage:</strong> .roll &lt;amount&gt;d&lt;sides&gt; [&lt;bonus&gt;] [-e] [&lt;message&gt;]
+          <ul>
+            <li>.roll d20 + 4 - 2d6</li>
+            <li>.roll 3dF - 20df</li>
+            <li>.roll 1d20 +2 Attack the gazebo</li>
+            <li>.roll 1d20 + 2 -1dF -e Flee from the gazebo</li>
+          </ul>
+        </li>
+        <li>Rolls one or more dice.</li>
+        <li>-e expands the result to show each result up to 20.</li>
+        <li>dF are <a href="https://en.wikipedia.org/wiki/Fudge_(role-playing_game_system)#Fudge_dice">fudge dice</a>.</li>
+      </ul>
+      <h4><span>.myRolls</span></h4>
+      <ul>
+        <li><strong>Usage:</strong> .myRolls</li>
+        <li>Displays the last five rolls made by the person who uses the command, expanded.</li>
+      </ul>
+      <h4><span>.avg | .average</span></h4>
+      <ul>
+        <li><strong>Usage:</strong> .avg &lt;dice sides&gt;
+          <ul>
+            <li>.avg 20</li>
+          </ul>
+        </li>
+        <li>Displays the average of your dice rolls with the specified number of sides.</li>
+        <li>Warning: if you roll a preposterously high number of dice at once, like 500d6, only the first 20 rolls will be saved to Helen's database for calculating your average. Maybe don't roll that many dice at once!</li>
+      </ul>
+      <h4><span>.seen</span></h4>
+      <ul>
+        <li><strong>Usage:</strong> .seen [-f] &lt;username&gt;
+          <ul>
+            <li>.seen Secretary_Helen</li>
+            <li>.seen -f Secretary_Helen</li>
+          </ul>
+        </li>
+        <li>Displays the most recent message seen from a user, along with the time it was sent.</li>
+        <li>-f displays the first message seen instead.</li>
+      </ul>
+      <h4><span>.s | .sea | .search</span></h4>
+      <ul>
+        <li><strong>Usage:</strong> .s &lt;query&gt; [-a &lt;author&gt;] [-t &lt;tag&gt;] [-e &lt;exclude&gt;] [-u]
+          <ul>
+            <li>.s emulator</li>
+            <li>.s emulator -t electronic</li>
+            <li>.s -a HelenBot -t tale -t anderson -u</li>
+          </ul>
+        </li>
+        <li>Searches for articles on the Foundation wiki.</li>
+        <li>-u displays a summary of all articles found instead of listing individual results.</li>
+        <li>-e and -t can be used multiple times.</li>
+      </ul>
+      <h4><span>.sm</span></h4>
+      <ul>
+        <li><strong>Usage:</strong> .sm &lt;number&gt;
+          <ul>
+            <li>.sm 2</li>
+          </ul>
+        </li>
+        <li>Selects one of the options given by Helen as part of a "Did you mean:".</li>
+      </ul>
+      <h4><span>.tell</span></h4>
+      <ul>
+        <li><strong>Usage:</strong> .tell &lt;user&gt; &lt;message&gt;
+          <ul>
+            <li>.tell Secretary_Helen You're doing a great job!</li>
+          </ul>
+        </li>
+        <li>Records a message to send to a user the next time Helen sees them.</li>
+      </ul>
+      <h4><span>.w | .wiki | .wikipedia</span></h4>
+      <ul>
+        <li><strong>Usage:</strong> .w &lt;query&gt;
+          <ul>
+            <li>.w SCP Foundation</li>
+          </ul>
+        </li>
+        <li>Searches Wikipedia for a term.</li>
+      </ul>
+      <h4><span>.y | .yt</span></h4>
+      <ul>
+        <li><strong>Usage:</strong> .y &lt;query&gt;
+          <ul>
+            <li>.y Never gonna give you up</li>
+          </ul>
+        </li>
+        <li>Searches YouTube for a term.</li>
+      </ul>
+      <h4><span>.user</span></h4>
+      <ul>
+        <li><strong>Usage:</strong> .user &lt;username&gt;
+          <ul>
+            <li>.user HelenBot</li>
+          </ul>
+        </li>
+        <li>Provides a link to an author's Wikidot profile.</li>
+      </ul>
+      <h4><span>SCP-XXXX</span></h4>
+      <ul>
+        <li><strong>Usage:</strong> SCP-&lt;article&gt;
+          <ul>
+            <li>SCP-3209</li>
+            <li>SCP-Big-egg-J</li>
+          </ul>
+        </li>
+        <li>Displays the SCP article with the corresponding designation.</li>
+      </ul>
+    </div>
+  </div>
+  <div id="footer">
+    Copyright &copy; black_white | <a href="http://validator.w3.org/check?uri=referer">HTML5</a> | <a href="http://jigsaw.w3.org/css-validator/check/referer">CSS</a> | <a href="http://www.html5webtemplates.co.uk">Free CSS Templates</a>
+  </div>
+</div>
+</body>
+</html>
