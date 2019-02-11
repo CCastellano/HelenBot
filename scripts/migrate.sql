@@ -68,10 +68,10 @@ ALTER TABLE ONLY "team_members" DROP CONSTRAINT "team_members_team_id_fkey";
 ALTER TABLE ONLY "team_members" ADD CONSTRAINT "team_members_team_id_fkey"
     FOREIGN KEY ("team_id")  REFERENCES "teams"("team_id")  ON DELETE CASCADE;
 
-delete from "pagetags" where "pageid" not in (select "pageid" from "pages");
+DELETE FROM "pagetags" where "pageid" not in (select "pageid" from "pages");
 ALTER TABLE ONLY "pagetags" ADD CONSTRAINT "pagetags_pageid_fkey"
     FOREIGN KEY ("pageid")  REFERENCES "pages"("pageid")  ON DELETE CASCADE;
-delete from "pagetags" where "tagid" not in (select "tagid" from "tags");
+DELETE FROM "pagetags" where "tagid" not in (select "tagid" from "tags");
 ALTER TABLE ONLY "pagetags" ADD CONSTRAINT "pagetags_tagid_fkey"
     FOREIGN KEY ("tagid")  REFERENCES "tags"("tagid")  ON DELETE CASCADE;
 ALTER TABLE ONLY "pagetags" ADD COLUMN "updatetime"  timestamp;
