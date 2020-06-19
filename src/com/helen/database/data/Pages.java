@@ -36,6 +36,7 @@ public class Pages {
     private static final Long DAYS = 1000 * 60 * 60 * 24L;
     private static final Long HOURS = 1000 * 60L * 60;
     private static final Long MINUTES = 1000 * 60L;
+    private static final char ZERO_WIDTH_SPACE = '\u200B';
     private static final Logger logger = Logger.getLogger(Pages.class);
     private static XmlRpcClientConfigImpl config;
     private static XmlRpcClient client;
@@ -216,6 +217,24 @@ public class Pages {
 
     }
 
+    /* Avoid pinging authors on IRC when their pages are mentioned
+     * by inserting a zero-width space.
+     *
+     * Not worth using when the input command specifies an author,
+     * because in that case the user will get pinged anyway and we
+     * can't do anything about it.
+     */
+
+    private static String getNonPingAuthorName(String authorname) {
+
+        StringBuilder builder = new StringBuilder();
+        builder.append(authorname.charAt(0));
+        builder.append(ZERO_WIDTH_SPACE);
+        builder.append(authorname.substring(1, authorname.length()-1));
+
+        return builder.toString();
+    }
+
     public static String getPageInfo(String pagename, CommandData data) {
         return getPageInfo(pagename, Configs.commandEnabled(data, "lcratings"));
     }
@@ -315,11 +334,13 @@ public class Pages {
             if (!authorFinalMetas.isEmpty()) {
 
                 if (authorFinalMetas.size() == 1) {
-                    returnString.append(authorFinalMetas.get(0).getUsername());
+                    returnString.append(getNonPingAuthorName(authorFinalMetas.get(0).getUsername()));
                 } else if (authorFinalMetas.size() == 2) {
-                    returnString.append(authorFinalMetas.get(0).getUsername()).append(" and ").append(authorFinalMetas.get(1).getUsername());
+                    returnString.append(getNonPingAuthorName(authorFinalMetas.get(0).getUsername()))
+                        .append(" and ")
+                        .append(getNonPingAuthorName(authorFinalMetas.get(1).getUsername()));
                 } else {
-                    returnString.append(authorFinalMetas.stream().map(Metadata::getUsername).collect(Collectors.joining(", ")));
+                    returnString.append(authorFinalMetas.stream().map(Metadata::getUsername).map(Pages::getNonPingAuthorName).collect(Collectors.joining(", ")));
                 }
             } else {
 
@@ -331,11 +352,13 @@ public class Pages {
                 returnString.append(meta.getDate());
                 returnString.append(" by ");
                 if (finalMetas.size() == 1) {
-                    returnString.append(finalMetas.get(0).getUsername());
+                    returnString.append(getNonPingAuthorName(finalMetas.get(0).getUsername()));
                 } else if (finalMetas.size() == 2) {
-                    returnString.append(finalMetas.get(0).getUsername()).append(" and ").append(finalMetas.get(1).getUsername());
+                    returnString.append(getNonPingAuthorName(finalMetas.get(0).getUsername()))
+                        .append(" and ")
+                        .append(getNonPingAuthorName(finalMetas.get(1).getUsername()));
                 } else {
-                    returnString.append(finalMetas.stream().map(Metadata::getUsername).collect(Collectors.joining(", ")));
+                    returnString.append(finalMetas.stream().map(Metadata::getUsername).map(Pages::getNonPingAuthorName).collect(Collectors.joining(", ")));
                 }
             }
             returnString.append(")");
