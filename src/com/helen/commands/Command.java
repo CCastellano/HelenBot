@@ -716,16 +716,21 @@ public class Command {
 
     @IRCCommand(command = {".o5"}, startOfLine = true, securityLevel = 1)
     public void findO5Record(CommandData data) {
-        if (Configs.getProperty("staffchannels").stream().anyMatch(config -> config.getValue().equalsIgnoreCase(data.getChannel()))) {
-            List<String> responses = Users.getUserO5Thread(data.getTarget());
-            if(responses.isEmpty()){
-                helen.sendOutgoingMessage(data.getResponseTarget(), data.getSender() + ": I didn't find any 05 threads for the user: " + data.getTarget());
-            }
-            for (String response : responses) {
-                helen.sendOutgoingMessage(data.getResponseTarget(), data.getSender() + ": " + response);
+        Optional<Config> o5Enabled = Configs.getSingleProperty("o5Enabled");
+        if(o5Enabled.isPresent() && o5Enabled.get().equals("true")) {
+            if (Configs.getProperty("staffchannels").stream().anyMatch(config -> config.getValue().equalsIgnoreCase(data.getChannel()))) {
+                List<String> responses = Users.getUserO5Thread(data.getTarget());
+                if (responses.isEmpty()) {
+                    helen.sendOutgoingMessage(data.getResponseTarget(), data.getSender() + ": I didn't find any 05 threads for the user: " + data.getTarget());
+                }
+                for (String response : responses) {
+                    helen.sendOutgoingMessage(data.getResponseTarget(), data.getSender() + ": " + response);
+                }
+            } else {
+                helen.sendOutgoingMessage(data.getResponseTarget(), data.getSender() + ": That command is not enabled here.");
             }
         }else{
-            helen.sendOutgoingMessage(data.getResponseTarget(), data.getSender() + ": That command is not enabled here.");
+            helen.sendOutgoingMessage(data.getResponseTarget(), data.getSender() + ": The command is currently disabled, please ask my programmers to re-enable.");
         }
     }
 
