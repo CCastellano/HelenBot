@@ -141,7 +141,7 @@ public class Page implements Selectable {
 
         returnString.append(")");
         returnString.append(" - ");
-        returnString.append("http://scpwiki.com/");
+        returnString.append("http://scp-wiki.wikidot.com/");
         returnString.append(this.getPageLink());
         return returnString.toString();
     }

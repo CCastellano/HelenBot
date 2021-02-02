@@ -88,7 +88,7 @@ public class Pages {
                 String regex = "<td style=\"vertical-align: top;\"><a href=\"\\/(.+)\">(.+)<\\/a><\\/td>";
                 Pattern r = Pattern.compile(regex);
                 String s;
-                URL u = new URL("http://www.scpwiki.com/most-recently-created");
+                URL u = new URL("http://scp-wiki.wikidot.com/most-recently-created");
                 InputStream is = u.openStream();
                 DataInputStream dis = new DataInputStream(new BufferedInputStream(is));
                 int i = 0;
@@ -168,7 +168,7 @@ public class Pages {
 
         if (flags.contains("-l")) {
             if (!slots.isEmpty()) {
-                return "The most recent unused slot is: http://scpwiki.com/scp-" + slots.get(slots.size() - 1);
+                return "The most recent unused slot is: http://scp-wiki.wikidot.com/scp-" + slots.get(slots.size() - 1);
             } else {
                 return "There are no unused slots between " + min + " and " + max + ".";
             }
@@ -176,7 +176,7 @@ public class Pages {
 
         if (flags.contains("-f")) {
             if (!slots.isEmpty()) {
-                return "The least recent unused slot is: http://scpwiki.com/scp-" + slots.get(0);
+                return "The least recent unused slot is: http://scp-wiki.wikidot.com/scp-" + slots.get(0);
             } else {
                 return "There are no unused slots between " + min + " and " + max + ".";
             }
@@ -184,7 +184,7 @@ public class Pages {
 
         if (flags.contains("-r")) {
             if (!slots.isEmpty()) {
-                return "http://scpwiki.com/scp-" + slots.get(new Random().nextInt(slots.size()));
+                return "http://scp-wiki.wikidot.com/scp-" + slots.get(new Random().nextInt(slots.size()));
             } else {
                 return "There are no unused slots between " + min + " and " + max + ".";
             }
@@ -435,7 +435,7 @@ public class Pages {
             }
             returnString.append(")");
             returnString.append(" - ");
-            returnString.append("http://scpwiki.com/");
+            returnString.append("http://scp-wiki.wikidot.com/");
             returnString.append(targetName);
 
             return returnString.toString();
@@ -611,7 +611,7 @@ public class Pages {
 
             if (authorPage != null) {
                 str.append("(");
-                str.append("http://www.scpwiki.com/");
+                str.append("http://scp-wiki.wikidot.com/");
                 str.append(authorPage.getPageLink());
                 str.append(") ");
             }
