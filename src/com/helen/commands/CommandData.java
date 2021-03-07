@@ -96,12 +96,7 @@ public class CommandData {
     }
 
     public boolean isWhiteList() {
-        for (Config config : Configs.getProperty("registeredNicks")) {
-            if (getSender().equals(config.getValue())) {
-                return true;
-            }
-        }
-        return false;
+        return Configs.getFastConfigs("registeredNicks").stream().anyMatch(k -> k.equalsIgnoreCase(getSender()));
     }
 
     public boolean isHugList() {

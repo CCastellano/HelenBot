@@ -73,7 +73,12 @@ public class HelenBot extends PircBot implements BotFramework{
     private void joinChannels() {
 
         for (Config channel : Configs.getProperty("autojoin")) {
-            this.joinChannel(channel.getValue());
+            Optional<Config> password = Configs.getSingleProperty(channel.getValue());
+            if(password.isPresent()){
+                this.joinChannel(channel.getValue(),password.get().getValue());
+            }else {
+                this.joinChannel(channel.getValue());
+            }
         }
     }
 
