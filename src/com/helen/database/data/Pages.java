@@ -383,9 +383,10 @@ public class Pages {
                 LocalDate newDate = LocalDate.parse(m.getDate());
                 if (meta == null || LocalDate.parse(meta.getDate()).compareTo(newDate) < 0) {
                     meta = m;
-                } else if (LocalDate.parse(meta.getDate()).compareTo(newDate) == 0) {
                     finalMetas.clear();
                     finalMetas.add(meta);
+                } else if (LocalDate.parse(meta.getDate()).compareTo(newDate) == 0) {
+
                     finalMetas.add(m);
                 }
             }
