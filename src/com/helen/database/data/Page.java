@@ -100,10 +100,10 @@ public class Page implements Selectable {
         for(Metadata data : dateMetadata) {
             LocalDate newDate = LocalDate.parse(data.getDate());
             if (finalDateMetadata == null || LocalDate.parse(finalDateMetadata.getDate()).compareTo(newDate) < 0) {
-                finalDateMetadata = data;
-            } else if (LocalDate.parse(finalDateMetadata.getDate()).compareTo(newDate) == 0) {
                 finalDateMetadataList.clear();
-                finalDateMetadataList.add(finalDateMetadata);
+                finalDateMetadata = data;
+                finalDateMetadataList.add(data);
+            } else if (LocalDate.parse(finalDateMetadata.getDate()).compareTo(newDate) == 0) {
                 finalDateMetadataList.add(data);
             }
         }
