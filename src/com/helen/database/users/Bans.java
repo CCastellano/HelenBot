@@ -145,12 +145,12 @@ public class Bans {
             try (CloseableStatement deleteStatement = Connector.getStatement(Queries.getQuery("deleteBan"), id)) {
                 if (deleteStatement != null) {
                     if (deleteStatement.executeDelete()) {
+                        updateBans();
                         return "Deleted all ban usernames, hostmasks, and entries for banid: " + id;
                     }
                 } else {
                     return "Something went wrong trying to construct the delete query.  Magnus, a word?";
                 }
-                updateBans();
             } catch (Exception e) {
                 logger.error(e);
                 return "Something went wrong attempting to delete the ban.  Magnus, a word?";
